@@ -28,7 +28,8 @@ export default function AdminTournamentPanel() {
   const [list, setList] = useState<Turniej[]>([]);
   const [previewNames, setPreviewNames] = useState<string[]>([]);
   const [selectedTurniej, setSelectedTurniej] = useState<string | null>(null);
-
+  const [meta, setMeta] = useState<{ range?: string; arkusz_nazwa?: string; source?: string } | null>(null);
+  
   async function loadList() {
     const { data, error } = await supabaseBrowser.from("turniej").select("*").order("created_at", { ascending: false });
     if (!error && data) setList(data as any);
@@ -64,12 +65,22 @@ export default function AdminTournamentPanel() {
   }
 
   async function preview(id: string) {
-    setSelectedTurniej(id);
-    setPreviewNames([]);
-    const r = await fetch(`/api/sheets/preview?turniej_id=${id}&limit=50`);
-    const j = await r.json();
-    setPreviewNames(j.names || []);
+  setSelectedTurniej(id);
+  setPreviewNames([]);
+  setMeta(null);
+  setErr(null);
+
+  const r = await fetch(`/api/sheets/preview?turniej_id=${id}&limit=50`, {
+    cache: "no-store",           // <- wyłącz cache po stronie klienta
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    setErr(j.error || "Błąd podglądu arkusza");
+    return;
   }
+  setPreviewNames(j.names || []);
+  setMeta(j.meta || null);        // <- pokażemy zakres z DB
+}
 
   const canSave = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
@@ -132,17 +143,26 @@ export default function AdminTournamentPanel() {
         </div>
 
         {selectedTurniej && (
-          <div className="mt-4">
-            <h4 className="font-medium mb-2">Podgląd nazwisk (pierwsze 50)</h4>
-            {previewNames.length === 0 ? (
-              <div className="text-sm text-gray-500">Brak danych albo błąd dostępu do arkusza.</div>
-            ) : (
-              <ul className="list-disc list-inside text-sm">
-                {previewNames.map((n, i) => <li key={i}>{n}</li>)}
-              </ul>
-            )}
-          </div>
-        )}
+  <div className="mt-4">
+    <h4 className="font-medium mb-2">Podgląd nazwisk (pierwsze 50)</h4>
+
+    {/* Meta źródła – wprost z DB */}
+    {meta && (
+      <div className="text-xs text-gray-600 mb-2">
+        Źródło: <code>{meta.source}</code> · Arkusz: <code>{meta.arkusz_nazwa}</code> · Zakres: <code>{meta.range}</code>
+      </div>
+    )}
+
+    {previewNames.length === 0 ? (
+      <div className="text-sm text-gray-500">Brak danych albo błąd dostępu do arkusza.</div>
+    ) : (
+      <ul className="list-disc list-inside text-sm">
+        {previewNames.map((n, i) => <li key={i}>{n}</li>)}
+      </ul>
+    )}
+    {err && <div className="text-red-600 text-sm mt-2">{err}</div>}
+  </div>
+)}
       </div>
     </div>
   );
