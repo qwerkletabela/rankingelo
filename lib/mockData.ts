@@ -5,6 +5,7 @@ export type Player = {
   played: number;
   wins: number;
   losses: number;
+  region?: string;
 };
 export type Match = {
   id: string;
@@ -27,3 +28,5 @@ export const eloHistory = [
   { date: "2025-10-01", avgElo: 1430 },
   { date: "2025-11-01", avgElo: 1450 }
 ];
+
+
