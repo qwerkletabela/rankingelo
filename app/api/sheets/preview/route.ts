@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { google } from "googleapis";
-
+export const runtime = "nodejs";
 export async function GET(req: Request) {
   try {
     const supabase = createClient();

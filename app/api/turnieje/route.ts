@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-
+export const runtime = "nodejs";
 export async function GET() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
