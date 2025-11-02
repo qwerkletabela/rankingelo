@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Statsweb-like (Next.js + Tailwind, bez bazy danych)
 
-## Getting Started
+Gotowa, lekka strona w stylu panelu statystyk (dashboard) dla Rummikub/Qwirkle – **z mock danymi**, bez integracji z bazą.
 
-First, run the development server:
+## Szybki start
 
 ```bash
+# 1) Zainstaluj zależności
+npm install
+
+# 2) Uruchom dev
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# 3) Otwórz w przeglądarce
+http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Co jest w środku?
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Next.js (App Router, TS)
+- Tailwind CSS
+- Proste komponenty UI (karty, tabelki)
+- Wykres (Recharts)
+- Mock dane w `lib/mockData.ts`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Gdzie dopisać logikę bazy (Supabase)?
 
-## Learn More
+- Docelowo twój kod do pobierania/aktualizacji danych możesz umieścić w `app/(api)` jako Route Handlers lub w server actions (`app/page.tsx`).
+- Na razie wszystko czyta z `lib/mockData.ts`. W przyszłości podmień to na zapytania do Supabase.
 
-To learn more about Next.js, take a look at the following resources:
+## Struktura
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+app/
+  page.tsx           # Dashboard
+  matches/page.tsx   # Lista ostatnich meczów
+components/
+  NavBar.tsx, StatCard.tsx, RankingTable.tsx, RecentMatchesTable.tsx, AvgEloChart.tsx
+lib/
+  mockData.ts
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploy na Vercel
 
-## Deploy on Vercel
+1. Zrób repo na GitHub i wrzuć ten projekt.
+2. Połącz repo z Vercel i kliknij Deploy (domyślne ustawienia wystarczą).
+3. Po wdrożeniu możesz zacząć podmieniać mock dane na Supabase.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Powodzenia! ✨

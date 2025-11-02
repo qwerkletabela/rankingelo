@@ -1,16 +1,32 @@
-import { supabase } from "@/lib/supabaseClient";
+import NavBar from "@/components/NavBar";
+import StatCard from "@/components/StatCard";
+import RankingTable from "@/components/RankingTable";
+import RecentMatchesTable from "@/components/RecentMatchesTable";
+import AvgEloChart from "@/components/AvgEloChart";
+import { players, matches } from "@/lib/mockData";
 
-import Image from "next/image";
-
-export default async function Home() {
-  const { data, error } = await supabase.from('_test').select('*');
-  console.log("Supabase test:", { data, error });
+export default function Page() {
+  const totalPlayers = players.length;
+  const totalMatches = matches.length;
+  const avgElo = Math.round(players.reduce((a, p) => a + p.elo, 0) / players.length);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
-      <h1 className="text-4xl font-bold">Supabase Połączone ✅</h1>
-      <p>Sprawdź konsolę (F12 → Console)</p>
+    <main>
+      <NavBar />
+      <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <StatCard title="Liczba graczy" value={totalPlayers} hint="aktywnych w rankingu" />
+          <StatCard title="Mecze w systemie" value={totalMatches} hint="ostatnio dodane" />
+          <StatCard title="Średni ELO" value={avgElo} hint="dla wszystkich graczy" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2"><AvgEloChart /></div>
+          <div className=""><RankingTable /></div>
+        </div>
+
+        <RecentMatchesTable />
+      </div>
     </main>
   );
 }
-
