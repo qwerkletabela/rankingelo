@@ -1,9 +1,4 @@
-type Props = {
-  title: string;
-  value: string | number;
-  hint?: string;
-};
-
+type Props = { title: string; value: string | number; hint?: string; };
 export default function StatCard({ title, value, hint }: Props) {
   return (
     <div className="card">

@@ -1,49 +1,52 @@
-# Statsweb-like (Next.js + Tailwind, bez bazy danych)
+# Ranking + Admin (Supabase Auth & Turnieje)
 
-Gotowa, lekka strona w stylu panelu statystyk (dashboard) dla Rummikub/Qwirkle – **z mock danymi**, bez integracji z bazą.
+Funkcje:
+- Logowanie (Supabase) i **guard admina** (`users.ranga='admin'`).
+- Panel **/admin** z zakładką **Turnieje**:
+  - Formularz dodawania turnieju (nazwa, link, arkusz, kolumna, pierwszy wiersz).
+  - Podgląd nazwisk z Google Sheets wg ustawień turnieju (pierwsze 50).
 
-## Szybki start
+## Konfiguracja
 
-```bash
-# 1) Zainstaluj zależności
+### 1) Env
+Utwórz `.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+GOOGLE_CLIENT_EMAIL=...@...gserviceaccount.com
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
+
+### 2) Supabase
+- W bazie mają istnieć tabele: `users (id uuid primary key, ranga text)`, `turniej` (z Twojego SQL).
+- Wstaw do `users` rekord dla siebie z `id = auth.uid()` i `ranga = 'admin'`.
+
+### 3) Uprawnienia (RLS — skrót)
+Przykładowe polityki (w SQL):
+```sql
+alter table public.turniej enable row level security;
+
+-- każdy może czytać (jeśli chcesz publiczny podgląd listy, inaczej zawęź):
+create policy "turniej_select_all" on public.turniej
+for select using (true);
+
+-- tylko admin może insert/update/delete
+create policy "turniej_admin_write" on public.turniej
+for all
+to authenticated
+using (exists (select 1 from users u where u.id = auth.uid() and u.ranga = 'admin'))
+with check (exists (select 1 from users u where u.id = auth.uid() and u.ranga = 'admin'));
+```
+
+## Uruchomienie
+```
 npm install
-
-# 2) Uruchom dev
 npm run dev
-
-# 3) Otwórz w przeglądarce
-http://localhost:3000
+# http://localhost:3000
+# logowanie: http://localhost:3000/login
+# panel: http://localhost:3000/admin
 ```
 
-## Co jest w środku?
-
-- Next.js (App Router, TS)
-- Tailwind CSS
-- Proste komponenty UI (karty, tabelki)
-- Wykres (Recharts)
-- Mock dane w `lib/mockData.ts`
-
-## Gdzie dopisać logikę bazy (Supabase)?
-
-- Docelowo twój kod do pobierania/aktualizacji danych możesz umieścić w `app/(api)` jako Route Handlers lub w server actions (`app/page.tsx`).
-- Na razie wszystko czyta z `lib/mockData.ts`. W przyszłości podmień to na zapytania do Supabase.
-
-## Struktura
-
-```
-app/
-  page.tsx           # Dashboard
-  matches/page.tsx   # Lista ostatnich meczów
-components/
-  NavBar.tsx, StatCard.tsx, RankingTable.tsx, RecentMatchesTable.tsx, AvgEloChart.tsx
-lib/
-  mockData.ts
-```
-
-## Deploy na Vercel
-
-1. Zrób repo na GitHub i wrzuć ten projekt.
-2. Połącz repo z Vercel i kliknij Deploy (domyślne ustawienia wystarczą).
-3. Po wdrożeniu możesz zacząć podmieniać mock dane na Supabase.
-
-Powodzenia! ✨
+## Notatki
+- Podgląd arkusza wymaga udostępnienia pliku **serwisowemu kontu Google** (`GOOGLE_CLIENT_EMAIL`) jako **Viewer**.
+- `gsheet_id` jest wyciągane automatycznie z linku podczas zapisu.

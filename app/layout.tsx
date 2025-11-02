@@ -5,17 +5,15 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Statsweb-like Dashboard",
-  description: "Lightweight stats dashboard (no DB, mock data).",
+  title: "Ranking Rummikub & Qwirkle",
+  description: "Panel i ranking",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pl">
       <body className={inter.className}>
-        <div className="container-outer">
-          {children}
-        </div>
+        <div className="container-outer">{children}</div>
       </body>
     </html>
   );

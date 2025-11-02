@@ -2,44 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: 248 248 251;
-}
-
-html, body {
-  height: 100%;
-}
-
-body {
-  @apply bg-[rgb(var(--bg))] text-gray-900;
-}
-.container-outer {
-  @apply min-h-screen;
-}
-.card {
-  @apply bg-white rounded-2xl shadow-soft p-6;
-}
-.card-title {
-  @apply text-sm font-medium text-gray-500;
-}
-.card-value {
-  @apply text-2xl font-semibold;
-}
-.table {
-  @apply w-full text-sm;
-}
-.table th {
-  @apply text-left text-gray-500 font-medium pb-2;
-}
-.table td {
-  @apply py-2;
-}
-.badge {
-  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs;
-}
-.badge-win {
-  @apply bg-green-100 text-green-700;
-}
-.badge-loss {
-  @apply bg-red-100 text-red-700;
-}
+:root { --bg: 248 248 251; }
+html, body { height: 100%; }
+body { @apply bg-[rgb(var(--bg))] text-gray-900; }
+.container-outer { @apply min-h-screen; }
+.card { @apply bg-white rounded-2xl shadow-soft p-6; }
+.card-title { @apply text-sm font-medium text-gray-500; }
+.card-value { @apply text-2xl font-semibold; }
+.table { @apply w-full text-sm; }
+.table th { @apply text-left text-gray-500 font-medium pb-2; }
+.table td { @apply py-2; }
+.badge { @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs; }
+.badge-win { @apply bg-green-100 text-green-700; }
+.badge-loss { @apply bg-red-100 text-red-700; }
+input, select, button { @apply outline-none; }

@@ -19,12 +19,10 @@ export default function Page() {
           <StatCard title="Mecze w systemie" value={totalMatches} hint="ostatnio dodane" />
           <StatCard title="Średni ELO" value={avgElo} hint="dla wszystkich graczy" />
         </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2"><AvgEloChart /></div>
           <div className=""><RankingTable /></div>
         </div>
-
         <RecentMatchesTable />
       </div>
     </main>

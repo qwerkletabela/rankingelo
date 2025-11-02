@@ -1,13 +1,11 @@
 "use client";
-
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { eloHistory } from "@/lib/mockData";
-
 export default function AvgEloChart() {
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Średni ELO (ostatnie miesiące)</h3>
+        <h3 className="font-semibold">Średni ELO</h3>
         <span className="text-xs text-gray-500">Mock data</span>
       </div>
       <div className="h-64">
