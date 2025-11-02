@@ -1,31 +1,25 @@
 // app/api/sheets/preview/route.ts
-export const runtime = "nodejs";         // googleapis wymaga Node
-export const revalidate = 0;             // bez ISR
-export const dynamic = "force-dynamic";  // wyłącz cache na Vercel
+export const runtime = "nodejs";
+export const revalidate = 0;
+export const dynamic = "force-dynamic";
 
 import { createClient } from "@/lib/supabase/server";
-import { google } from "googleapis";
 
+// Czyta listę nazwisk z publicznego CSV (gviz) na podstawie rekordu "turniej"
 export async function GET(req: Request) {
   try {
     const supabase = createClient();
-
-    // autoryzacja: tylko admin
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
 
-    const { data: me, error: meErr } = await supabase
-      .from("users").select("ranga").eq("id", user.id).maybeSingle();
-    if (meErr) return json({ error: `users select: ${meErr.message}` }, 500);
+    const { data: me } = await supabase.from("users").select("ranga").eq("id", user.id).maybeSingle();
     if (me?.ranga !== "admin") return json({ error: "Forbidden" }, 403);
 
-    // parametry
     const url = new URL(req.url);
     const turniejId = url.searchParams.get("turniej_id");
     const limit = Number(url.searchParams.get("limit") || 50);
     if (!turniejId) return json({ error: "turniej_id required" }, 400);
 
-    // === KLUCZOWE: czytamy KONFIG z DB ===
     const { data: t, error: tErr } = await supabase
       .from("turniej")
       .select("*")
@@ -35,60 +29,79 @@ export async function GET(req: Request) {
     if (tErr) return json({ error: `turniej select: ${tErr.message}` }, 500);
     if (!t) return json({ error: "Turniej nie znaleziony" }, 404);
 
-    const spreadsheetId = t.gsheet_id || extractIdFromUrl(t.gsheet_url);
+    const sheetId = extractSheetId(t.gsheet_url);
+    if (!sheetId) return json({ error: "Nieprawidłowy link do arkusza (brak /spreadsheets/d/{ID})" }, 400);
+
+    const gid = extractGid(t.gsheet_url); // opcjonalny
     const col = String(t.kolumna_nazwisk).toUpperCase();
     const from = Number(t.pierwszy_wiersz_z_nazwiskiem || 2);
-    const range = `${t.arkusz_nazwa}!${col}${from}:${col}`;
+    const range = `${col}${from}:${col}`;
 
-    // Google Auth (env muszą być ustawione na Vercel)
-    const email = process.env.GOOGLE_CLIENT_EMAIL;
-    let key = process.env.GOOGLE_PRIVATE_KEY || "";
-    if (!email || !key || !spreadsheetId) {
-      return json({ error: "Brak GOOGLE_CLIENT_EMAIL/GOOGLE_PRIVATE_KEY lub gsheet_id" }, 500);
+    // Budujemy publiczny CSV URL przez gviz (bez OAuth, bez kluczy)
+    // Preferujemy nazwę arkusza, ale gdyby była nietypowa – użyjemy gid.
+    const params = new URLSearchParams({ tqx: "out:csv", range });
+    if (t.arkusz_nazwa) params.set("sheet", t.arkusz_nazwa);
+    else if (gid) params.set("gid", gid);
+
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?${params.toString()}`;
+
+    // Serwerowy fetch omija CORS przeglądarki
+    const res = await fetch(csvUrl, { method: "GET", headers: { "Cache-Control": "no-cache" } });
+
+    if (!res.ok) {
+      // Typowe przyczyny: arkusz nie jest publiczny dla "każdy z linkiem"
+      // albo nazwa karty/zakres są błędne.
+      const txt = await res.text();
+      return json(
+        { error: `Google zwróciło ${res.status}. Upewnij się, że arkusz jest publiczny (Anyone with the link) lub opublikowany.`, details: txt.slice(0, 500) },
+        502
+      );
     }
-    key = key.replace(/\\n/g, "\n");
 
-    const auth = new google.auth.JWT(email, undefined, key, [
-      "https://www.googleapis.com/auth/spreadsheets.readonly",
-    ]);
-    const sheets = google.sheets({ version: "v4", auth });
+    const csv = await res.text();
+    const names = parseCsvSingleColumn(csv).filter(Boolean).slice(0, limit);
 
-    const { data: sheetData } = await sheets.spreadsheets.values.get({ spreadsheetId, range });
-    let names: string[] =
-      (sheetData.values || [])
-        .flat()
-        .map((v) => String(v).trim())
-        .filter(Boolean);
+    return json({
+      names,
+      meta: {
+        sheetId,
+        arkusz_nazwa: t.arkusz_nazwa || null,
+        range,
+        used: t.arkusz_nazwa ? "sheet+range" : (gid ? "gid+range" : "range-only"),
+        url: csvUrl
+      }
+    }, 200, { "Cache-Control": "no-store" });
 
-    if (limit && names.length > limit) names = names.slice(0, limit);
-
-    // Zwracamy TYLKO podgląd + meta (żadnego zapisu do DB)
-    return json(
-      {
-        names,
-        meta: {
-          spreadsheetId,
-          arkusz_nazwa: t.arkusz_nazwa,
-          range,                // np. "Gracze!B2:B"
-          kolumna: col,
-          start: from,
-          source: "db",
-        },
-      },
-      200,
-      { "Cache-Control": "no-store" }
-    );
   } catch (e: any) {
     return json({ error: e?.message || "Unknown error" }, 500);
   }
 }
 
-function extractIdFromUrl(url: string): string | null {
-  const m = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+function extractSheetId(u: string): string | null {
+  const m = u.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+function extractGid(u: string): string | null {
+  const m = u.match(/[#&?]gid=(\d+)/);
   return m ? m[1] : null;
 }
 
-// pomocniczy Response.json z nagłówkami
+// Bardzo prosty parser CSV (jedna kolumna), uwzględnia cudzysłowy i \n
+function parseCsvSingleColumn(csv: string): string[] {
+  // Najpierw rozbij po liniach, potem zdejmij cudzysłowy i escape'y.
+  return csv
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .map(l => {
+      if (!l) return "";
+      if (l.startsWith('"') && l.endsWith('"')) {
+        // unescape podwójnych cudzysłowów CSV
+        return l.slice(1, -1).replace(/""/g, '"').trim();
+      }
+      return l;
+    });
+}
+
 function json(body: any, status = 200, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), {
     status,

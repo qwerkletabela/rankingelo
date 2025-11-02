@@ -22,7 +22,7 @@ export default function NavBar() {
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-6 h-6" />
-          <Link href="/" className="font-semibold">Rummikub & Qwirkle Stats</Link>
+          <Link href="/" className="font-semibold">Ranking Elo</Link>
         </div>
         <nav className="flex items-center gap-6 text-sm text-gray-600">
           <Link href="/" className="hover:text-black inline-flex items-center gap-1"><Users className="w-4 h-4" />Ranking</Link>
