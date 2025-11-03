@@ -31,6 +31,9 @@ body {
 .btn { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium; }
 .btn-primary { @apply bg-brand-700 text-white hover:bg-brand-800 active:bg-brand-900; }
 .btn-ghost { @apply bg-white/70 text-gray-800 hover:bg-white; }
+.btn-outline { @apply bg-white text-gray-800 border border-gray-300 hover:bg-gray-50; }
+.btn-danger { @apply bg-red-600 text-white hover:bg-red-700 active:bg-red-800; }
+
 
 /* Link w nawigacji */
 .nav-link { @apply text-sm text-white/90 hover:text-white transition-colors; }
