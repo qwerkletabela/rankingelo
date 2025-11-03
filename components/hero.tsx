@@ -1,4 +1,4 @@
-export default function Hero() {
+export default function hero() {
   return (
     <section className="relative overflow-hidden">
       {/* czerwone tło w stylu Rummikub */}
