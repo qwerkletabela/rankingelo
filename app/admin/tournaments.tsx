@@ -11,12 +11,18 @@ type Turniej = {
   arkusz_nazwa: string;
   kolumna_nazwisk: string;
   pierwszy_wiersz_z_nazwiskiem: number;
+  data_turnieju: string | null;     // YYYY-MM-DD
+  godzina_turnieju: string | null;  // HH:MM:SS (w DB)
   created_at?: string;
 };
 
 function extractIdFromUrl(url: string): string | null {
   const m = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
+}
+function toTimeInput(v?: string | null) {
+  if (!v) return "";
+  return v.slice(0, 5); // "HH:MM:SS" -> "HH:MM"
 }
 
 export default function AdminTournamentPanel() {
@@ -26,6 +32,8 @@ export default function AdminTournamentPanel() {
   const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
   const [kolumnaNazwisk, setKolumnaNazwisk] = useState("B");
   const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
+  const [dataTurnieju, setDataTurnieju] = useState<string>("");
+  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
 
   // lista
   const [list, setList] = useState<Turniej[]>([]);
@@ -61,6 +69,8 @@ export default function AdminTournamentPanel() {
         arkusz_nazwa: arkuszNazwa,
         kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
         pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz),
+        data_turnieju: dataTurnieju || null,
+        godzina_turnieju: godzinaTurnieju || null, // "HH:MM"
       }),
     });
     const j = await res.json().catch(() => ({}));
@@ -68,13 +78,13 @@ export default function AdminTournamentPanel() {
     if (!res.ok) { setErr(j.error || "Błąd zapisu"); return; }
     setOk("Dodano turniej.");
     setNazwa(""); setGsheetUrl("");
+    setDataTurnieju(""); setGodzinaTurnieju("");
     await loadList();
   }
 
   function toggleExpand(t: Turniej) {
     setErr(null); setOk(null); setConfirmDel(null);
     setExpandedId(curr => (curr === t.id ? null : t.id));
-    // przy rozwinięciu od razu wypełniamy edytowalne pola
     setEditRow({
       id: t.id,
       nazwa: t.nazwa,
@@ -83,6 +93,8 @@ export default function AdminTournamentPanel() {
       arkusz_nazwa: t.arkusz_nazwa,
       kolumna_nazwisk: t.kolumna_nazwisk,
       pierwszy_wiersz_z_nazwiskiem: t.pierwszy_wiersz_z_nazwiskiem,
+      data_turnieju: t.data_turnieju,
+      godzina_turnieju: t.godzina_turnieju,
     });
   }
 
@@ -93,12 +105,11 @@ export default function AdminTournamentPanel() {
   async function saveEdit(id: string) {
     setErr(null); setOk(null);
     const body: any = { ...editRow };
-    if (body.gsheet_url && !body.gsheet_id) {
-      body.gsheet_id = extractIdFromUrl(body.gsheet_url);
-    }
-    if (typeof body.kolumna_nazwisk === "string") {
-      body.kolumna_nazwisk = body.kolumna_nazwisk.toUpperCase();
-    }
+    if (body.gsheet_url && !body.gsheet_id) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
+    if (typeof body.kolumna_nazwisk === "string") body.kolumna_nazwisk = body.kolumna_nazwisk.toUpperCase();
+    if (typeof body.data_turnieju !== "undefined" && body.data_turnieju === "") body.data_turnieju = null;
+    if (typeof body.godzina_turnieju !== "undefined" && body.godzina_turnieju === "") body.godzina_turnieju = null;
+
     const res = await fetch(`/api/turnieje/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -141,6 +152,7 @@ export default function AdminTournamentPanel() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
               placeholder="https://docs.google.com/spreadsheets/d/..." required />
           </label>
+
           <label className="text-sm">
             <div className="text-gray-600 mb-1">Nazwa arkusza (karta)</div>
             <input value={arkuszNazwa} onChange={(e)=>setArkuszNazwa(e.target.value)}
@@ -157,6 +169,27 @@ export default function AdminTournamentPanel() {
               onChange={(e)=>setPierwszyWiersz(parseInt(e.target.value||"1"))}
               className="w-full rounded-lg border border-gray-300 px-3 py-2" required />
           </label>
+
+          {/* Nowe pola: data + godzina */}
+          <label className="text-sm">
+            <div className="text-gray-600 mb-1">Data turnieju</div>
+            <input
+              type="date"
+              value={dataTurnieju}
+              onChange={(e)=>setDataTurnieju(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+          <label className="text-sm">
+            <div className="text-gray-600 mb-1">Godzina rozpoczęcia</div>
+            <input
+              type="time"
+              value={godzinaTurnieju}
+              onChange={(e)=>setGodzinaTurnieju(e.target.value)} // "HH:MM"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+
           <div className="md:col-span-2">
             {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
             {ok && <div className="text-green-700 text-sm mb-2">{ok}</div>}
@@ -167,7 +200,7 @@ export default function AdminTournamentPanel() {
         </form>
       </div>
 
-      {/* Lista bez dodatkowych kolumn — tylko nazwa i strzałka */}
+      {/* Lista — tylko nazwa; obok OSOBNO data i godzina (etykiety) */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Twoje turnieje</h3>
@@ -185,6 +218,9 @@ export default function AdminTournamentPanel() {
             <tbody>
               {list.map((t) => {
                 const open = expandedId === t.id;
+                const datePart = t.data_turnieju || null;
+                const timePart = t.godzina_turnieju ? t.godzina_turnieju.slice(0,5) : null;
+
                 return (
                   <>
                     <tr
@@ -203,6 +239,18 @@ export default function AdminTournamentPanel() {
                         <span className="font-medium group-hover:text-brand-700 group-hover:underline underline-offset-4">
                           {t.nazwa}
                         </span>
+                        <span className="ml-3 inline-flex items-center gap-2">
+                          {datePart && (
+                            <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">
+                              {datePart}
+                            </span>
+                          )}
+                          {timePart && (
+                            <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">
+                              {timePart}
+                            </span>
+                          )}
+                        </span>
                       </td>
                     </tr>
 
@@ -210,7 +258,6 @@ export default function AdminTournamentPanel() {
                       <tr className="border-t border-gray-100">
                         <td colSpan={2} className="p-0">
                           <div className="px-4 py-4 bg-white">
-                            {/* Edytowalne pola */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <Field
                                 label="Nazwa"
@@ -231,7 +278,9 @@ export default function AdminTournamentPanel() {
                                 label="Pierwszy wiersz z nazwiskiem"
                                 type="number"
                                 value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? 2)}
-                                onChange={(v) => onChange("pierwszy_wiersz_z_nazwiskiem", String(Number(v || 2)))}
+                                onChange={(v) =>
+                                  onChange("pierwszy_wiersz_z_nazwiskiem", String(Number(v || 2)))
+                                }
                               />
                               <Field
                                 label="Link do Google Sheets"
@@ -243,6 +292,19 @@ export default function AdminTournamentPanel() {
                                     gsheet_id: extractIdFromUrl(v) || null,
                                   }))
                                 }
+                              />
+                              {/* Data i godzina — osobne pola */}
+                              <Field
+                                label="Data turnieju"
+                                type="date"
+                                value={String(editRow.data_turnieju ?? "")}
+                                onChange={(v) => setEditRow(s => ({ ...s, data_turnieju: v || null }))}
+                              />
+                              <Field
+                                label="Godzina rozpoczęcia"
+                                type="time"
+                                value={toTimeInput(editRow.godzina_turnieju)}
+                                onChange={(v) => setEditRow(s => ({ ...s, godzina_turnieju: v || null }))}
                               />
                             </div>
 
@@ -303,7 +365,7 @@ export default function AdminTournamentPanel() {
   );
 }
 
-/* ——— Pomocniczy, prosty input ——— */
+/* ——— Prosty input ——— */
 function Field({
   label,
   value,
