@@ -1,6 +1,6 @@
-import NavBar from "@/components/NavBar";
+
 import RecentMatchesTable from "@/components/RecentMatchesTable";
-import Hero from "@/components/Hero";
+
 
 export default function MatchesPage() {
   return (
