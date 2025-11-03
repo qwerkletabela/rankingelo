@@ -5,18 +5,18 @@ export default async function AdminPage() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
+  // ⬇️ Niezalogowany: tylko link "Dodaj turniej"
   if (!user) {
     return (
       <main>
-        <div className="max-w-6xl mx-auto px-4 -mt-12">
-          <div className="rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200 px-4 py-3">
-            Nie jesteś zalogowany. <a className="underline" href="/login">Przejdź do logowania</a>.
-          </div>
+        <div className="max-w-6xl mx-auto px-4 -mt-12 py-6">
+          <a href="/login" className="btn btn-primary">Dodaj turniej</a>
         </div>
       </main>
     );
   }
 
+  // Zalogowany: sprawdź rolę i pokaż panel
   const { data: me } = await supabase
     .from("users")
     .select("ranga")
@@ -28,7 +28,7 @@ export default async function AdminPage() {
 
   return (
     <main>
-      <div className="max-w-6xl mx-auto px-4 py-6 grid gap-6">
+      <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6 pb-6">
         <div
           className={`rounded-lg px-4 py-3 border ${
             isAdmin
@@ -46,8 +46,7 @@ export default async function AdminPage() {
           <div className="card">
             <h3 className="font-semibold mb-2">Dostęp wymaga roli ADMIN</h3>
             <p className="text-sm text-gray-600">
-              Poproś o nadanie uprawnień albo w SQL ustaw:{" "}
-              <code>update public.users set ranga='admin' where id = '&lt;Twoje UUID&gt;';</code>
+              Poproś o nadanie uprawnień w tabeli <code>users</code>.
             </p>
           </div>
         )}
