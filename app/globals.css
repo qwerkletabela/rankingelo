@@ -2,17 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { --bg: 248 248 251; }
+/* Tło: delikatny czerwony gradient */
+:root {
+  --page-grad-from: 248 20% 98%;
+  --page-grad-mid: 350 100% 98%;
+  --page-grad-to: 0 85% 96%;
+}
 html, body { height: 100%; }
-body { @apply bg-[rgb(var(--bg))] text-gray-900; }
-.container-outer { @apply min-h-screen; }
-.card { @apply bg-white rounded-2xl shadow-soft p-6; }
-.card-title { @apply text-sm font-medium text-gray-500; }
+body {
+  @apply min-h-screen text-gray-900;
+  background:
+    radial-gradient(1200px 600px at 20% -10%, hsl(var(--page-grad-mid)) 0%, transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, hsl(var(--page-grad-to)) 0%, transparent 55%),
+    linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
+}
+
+/* Karty */
+.card { @apply bg-white/95 backdrop-blur-sm rounded-2xl shadow-soft p-6 border border-white/60; }
+.card-title { @apply text-xs uppercase tracking-wide text-gray-500; }
 .card-value { @apply text-2xl font-semibold; }
+
+/* Tabela */
 .table { @apply w-full text-sm; }
 .table th { @apply text-left text-gray-500 font-medium pb-2; }
 .table td { @apply py-2; }
-.badge { @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs; }
-.badge-win { @apply bg-green-100 text-green-700; }
-.badge-loss { @apply bg-red-100 text-red-700; }
-input, select, button { @apply outline-none; }
+
+/* Przyciski */
+.btn { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium; }
+.btn-primary { @apply bg-brand-700 text-white hover:bg-brand-800 active:bg-brand-900; }
+.btn-ghost { @apply bg-white/70 text-gray-800 hover:bg-white; }
+
+/* Link w nawigacji */
+.nav-link { @apply text-sm text-white/90 hover:text-white transition-colors; }
+.nav-link-active { @apply text-white; }
+
+/* Pasek nawigacji (sticky) – gradient czerwony */
+.navbar {
+  @apply sticky top-0 z-30 backdrop-blur border-b;
+  background: linear-gradient(180deg, rgba(185, 28, 28, 0.95), rgba(185, 28, 28, 0.92));
+  border-color: rgba(255,255,255,0.15);
+}
+
