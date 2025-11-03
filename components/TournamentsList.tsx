@@ -15,10 +15,9 @@ function hhmm(s?: string | null) {
 }
 
 function toLocalDate(dateStr?: string | null, timeStr?: string | null): Date | null {
-  if (!dateStr || !timeStr) return null;
+  if (!dateStr) return null;
   const [y, m, d] = dateStr.split("-").map(Number);
-  const [H, M] = timeStr.slice(0, 5).split(":").map(Number);
-  // Date w lokalnej strefie (np. Europa/Warszawa w przeglądarce)
+  const [H, M] = (timeStr ? timeStr.slice(0, 5) : "00:00").split(":").map(Number);
   return new Date(y, (m || 1) - 1, d || 1, H || 0, M || 0, 0, 0);
 }
 
@@ -31,9 +30,50 @@ function useNow(tickMs = 60_000) {
   return now;
 }
 
+type Status = { label: string; className: string } | null;
+
+function getStatus(dateStr?: string | null, timeStr?: string | null, nowMs?: number): Status {
+  if (!dateStr || !nowMs) return null;
+
+  const start = toLocalDate(dateStr, timeStr);
+  if (!start) return null;
+
+  const end = new Date(start.getTime() + 4 * 60 * 60 * 1000);
+  const now = new Date(nowMs);
+
+  // Po 4h od startu
+  if (now.getTime() >= end.getTime()) {
+    return { label: "Zakończony", className: "bg-green-100 text-green-700" };
+  }
+
+  // W trakcie (od startu do +4h)
+  if (now.getTime() >= start.getTime()) {
+    return { label: "W trakcie", className: "bg-amber-100 text-amber-800" };
+  }
+
+  // Przed startem → "za X dni" / "jutro" / "dzisiaj za X h/min"
+  const todayMid = new Date(now); todayMid.setHours(0, 0, 0, 0);
+  const startMid = new Date(start); startMid.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((startMid.getTime() - todayMid.getTime()) / 86400000);
+
+  if (diffDays > 1) {
+    return { label: `za ${diffDays} dni`, className: "bg-blue-100 text-blue-700" };
+  }
+  if (diffDays === 1) {
+    return { label: "jutro", className: "bg-blue-100 text-blue-700" };
+  }
+  // diffDays === 0 → dzisiaj: policz godziny/minuty
+  const deltaMs = start.getTime() - now.getTime();
+  const h = Math.floor(deltaMs / 3_600_000);
+  const m = Math.round((deltaMs % 3_600_000) / 60_000);
+  const timeLeft =
+    h >= 1 ? `dzisiaj za ${h} h${m ? ` ${m} min` : ""}` : `dzisiaj za ${Math.max(m, 1)} min`;
+  return { label: timeLeft, className: "bg-blue-100 text-blue-700" };
+}
+
 export default function TournamentsList({ items }: { items: Item[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  const now = useNow(); // odśwież co minutę
+  const now = useNow(); // odświeża się co minutę
 
   if (items.length === 0) {
     return <div className="text-sm text-gray-500">Brak turniejów.</div>;
@@ -53,9 +93,7 @@ export default function TournamentsList({ items }: { items: Item[] }) {
             const open = openId === t.id;
             const datePart = t.data_turnieju || null;
             const timePart = hhmm(t.godzina_turnieju);
-            const start = toLocalDate(datePart, timePart);
-            const finished =
-              start ? now >= start.getTime() + 4 * 60 * 60 * 1000 : false;
+            const status = getStatus(datePart, timePart, now);
 
             return (
               <>
@@ -86,9 +124,9 @@ export default function TournamentsList({ items }: { items: Item[] }) {
                           {timePart}
                         </span>
                       )}
-                      {finished && (
-                        <span className="inline-block rounded-full bg-green-100 text-green-700 text-[11px] px-2 py-0.5">
-                          Zakończony
+                      {status && (
+                        <span className={`inline-block rounded-full text-[11px] px-2 py-0.5 ${status.className}`}>
+                          {status.label}
                         </span>
                       )}
                     </span>
@@ -105,7 +143,7 @@ export default function TournamentsList({ items }: { items: Item[] }) {
                           <Info label="Godzina" value={timePart ?? "—"} />
                           <Info
                             label="Status"
-                            value={finished ? "Zakończony" : "W trakcie / oczekuje"}
+                            value={status ? status.label : "—"}
                           />
                         </div>
 
