@@ -1,6 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
-import Hero from "./Hero";
+import Hero from "@/components/Hero";
+
 
 const HIDE_ON = ["/admin", "/login", "/register"];
 
