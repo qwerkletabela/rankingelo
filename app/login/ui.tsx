@@ -4,10 +4,18 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
+const ALLOWED = ["/", "/admin", "/turnieje", "/matches", "/mecze"] as const;
+type Allowed = (typeof ALLOWED)[number];
+
+function pickAllowed(nextParam: string | null, fallback: Allowed): Allowed {
+  if (!nextParam) return fallback;
+  return (ALLOWED as readonly string[]).includes(nextParam) ? (nextParam as Allowed) : fallback;
+}
+
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next"); // np. ?next=/admin
+  const nextParam = searchParams.get("next");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,10 +27,7 @@ export default function LoginForm() {
     setErr(null);
     setLoading(true);
 
-    const { data, error } = await supabaseBrowser.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
 
     if (error) {
       setErr(error.message);
@@ -30,10 +35,10 @@ export default function LoginForm() {
       return;
     }
 
-    // przekieruj wg rangi
-    const user = data.user;
-    let target = next || "/";
+    // domyślny cel to "/", ale jeśli admin to "/admin"
+    let target: Allowed = "/";
 
+    const user = data.user;
     if (user) {
       const { data: me } = await supabaseBrowser
         .from("users")
@@ -42,11 +47,13 @@ export default function LoginForm() {
         .maybeSingle();
 
       if (me?.ranga === "admin") {
-        target = next || "/admin";
+        target = "/admin";
       }
     }
 
-    // twardsze przeładowanie (czyści SSR), ale router też ok
+    // jeśli w URL było ?next=..., użyj tylko jeśli to dozwona ścieżka
+    target = pickAllowed(nextParam, target);
+
     router.replace(target);
   }
 
