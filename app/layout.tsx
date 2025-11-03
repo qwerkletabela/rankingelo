@@ -7,7 +7,7 @@ import Hero from "@/components/Hero";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Ranking Rummikub & Qwirkle",
+  title: "Ranking Elo",
   description: "Panel i ranking",
 };
 
