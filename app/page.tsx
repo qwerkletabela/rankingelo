@@ -1,6 +1,3 @@
-import NavBar from "@/components/NavBar";
-import Hero from "@/components/Hero";
-
 import StatCard from "@/components/StatCard";
 import RankingTable from "@/components/RankingTable";
 import RecentMatchesTable from "@/components/RecentMatchesTable";
@@ -14,9 +11,7 @@ export default function Page() {
 
   return (
     <main>
-      <NavBar />
-    
-
+      {/* Hero i NavBar są w app/layout.tsx, więc tutaj już NIC z nich nie wstawiamy */}
       <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <StatCard title="Liczba graczy" value={totalPlayers} hint="aktywnych w rankingu" />
@@ -34,3 +29,4 @@ export default function Page() {
     </main>
   );
 }
+
