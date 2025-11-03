@@ -12,8 +12,8 @@ type HeroProps = {
 
 export default function Hero({
   mode = "auto",
-  title = "Ranking Rummikub & Qwirkle",
-  subtitle = "Administruj turniejami, podglądaj listy z Google Sheets i śledź formę graczy w czasie.",
+  title = "Ranking Elo",
+  subtitle = "Ranking Elo Graczy Rummikub.",
   hideOn = ["/admin", "/login", "/register"],
 }: HeroProps) {
   const p = usePathname() || "/";
