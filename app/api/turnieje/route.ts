@@ -59,6 +59,23 @@ export async function POST(req: Request) {
     payload.godzina_turnieju = norm; // null lub "HH:MM:SS"
   }
 
+  // ⬇️ TUTAJ: lat/lng (opcjonalnie)
+  if (typeof b.lat !== "undefined") {
+    const v = Number(b.lat);
+    if (!Number.isFinite(v) || v < -90 || v > 90) {
+      return Response.json({ error: "Nieprawidłowe lat (-90..90)" }, { status: 400 });
+    }
+    payload.lat = v;
+  }
+  if (typeof b.lng !== "undefined") {
+    const v = Number(b.lng);
+    if (!Number.isFinite(v) || v < -180 || v > 180) {
+      return Response.json({ error: "Nieprawidłowe lng (-180..180)" }, { status: 400 });
+    }
+    payload.lng = v;
+  }
+  // ⬆️ KONIEC wstawki
+
   if (!payload.nazwa || !payload.gsheet_url || !payload.arkusz_nazwa || !payload.kolumna_nazwisk) {
     return Response.json({ error: "Brak wymaganych pól" }, { status: 400 });
   }
