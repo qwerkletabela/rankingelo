@@ -86,6 +86,34 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     payload.godzina_turnieju = norm;
   }
 
+  // ⬇️ TU WSTAW lat/lng (po godzinie, przed sprawdzeniem pustego payloadu)
+  if ("lat" in body) {
+    const raw = body.lat;
+    if (raw === null || raw === "") {
+      payload.lat = null;
+    } else {
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v < -90 || v > 90) {
+        return Response.json({ error: "Nieprawidłowe lat (-90..90)" }, { status: 400 });
+      }
+      payload.lat = v;
+    }
+  }
+
+  if ("lng" in body) {
+    const raw = body.lng;
+    if (raw === null || raw === "") {
+      payload.lng = null;
+    } else {
+      const v = Number(raw);
+      if (!Number.isFinite(v) || v < -180 || v > 180) {
+        return Response.json({ error: "Nieprawidłowe lng (-180..180)" }, { status: 400 });
+      }
+      payload.lng = v;
+    }
+  }
+  // ⬆️ KONIEC wstawki
+
   if (Object.keys(payload).length === 0) {
     return Response.json({ error: "Nic do zaktualizowania" }, { status: 400 });
   }
