@@ -1,4 +1,4 @@
-import NavBar from "@/components/NavBar";
+
 import { createClient } from "@/lib/supabase/server";
 import AdminShell from "./shell";
 
