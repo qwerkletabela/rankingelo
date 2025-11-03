@@ -1,4 +1,3 @@
-// components/Hero.tsx
 export default function Hero() {
   return (
     <section className="relative overflow-hidden">
@@ -9,7 +8,7 @@ export default function Hero() {
 
       <div className="max-w-6xl mx-auto px-4 pt-10 pb-20 text-white">
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-          Ranking Rummikub &amp; Qwirkle
+          Ranking Rummikub & Qwirkle
         </h1>
         <p className="mt-3 text-white/90 max-w-2xl">
           Administruj turniejami, podglądaj listy z Google Sheets i śledź formę graczy w czasie.
