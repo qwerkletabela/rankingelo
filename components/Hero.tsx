@@ -8,10 +8,10 @@ export default function Hero() {
 
       <div className="max-w-6xl mx-auto px-4 pt-10 pb-20 text-white">
         <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
-          Ranking Rummikub & Qwirkle
+          Ranking Elo
         </h1>
         <p className="mt-3 text-white/90 max-w-2xl">
-          Administruj turniejami, podglądaj listy z Google Sheets i śledź formę graczy w czasie.
+          Ranking Elo Graczy 
         </p>
 
         <div className="mt-6 flex gap-3">
