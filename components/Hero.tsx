@@ -14,7 +14,7 @@ export default function Hero({
   mode = "auto",
   title = "Ranking Elo",
   subtitle = "Ranking Elo Graczy Rummikub.",
-  hideOn = ["/admin", "/login", "/register"],
+  hideOn = ["/login", "/register"],
 }: HeroProps) {
   const p = usePathname() || "/";
   if (mode === "auto" && hideOn.some((base) => p.startsWith(base))) return null;
