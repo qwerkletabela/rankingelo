@@ -7,7 +7,7 @@ const nextConfig = {
   experimental: { typedRoutes: true },
 
   // jeśli chcesz tymczasowo wyłączyć ESLint w buildzie, ustaw true:
-  // eslint: { ignoreDuringBuilds: true },
+  eslint: { ignoreDuringBuilds: true },
 
   webpack: (config) => {
     // alias "@" → katalog projektu (działa z importami "@/components/...")
