@@ -4,7 +4,7 @@ import path from "path";
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: { typedRoutes: true },
+  experimental: { typedRoutes: false },
 
   // jeśli chcesz tymczasowo wyłączyć ESLint w buildzie, ustaw true:
   eslint: { ignoreDuringBuilds: true },
