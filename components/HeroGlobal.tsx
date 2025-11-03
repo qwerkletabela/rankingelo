@@ -1,6 +1,6 @@
 "use client";
 import { usePathname } from "next/navigation";
-import Hero from "./Hero.tsx";   // <= UWAGA: ./Hero.tsx (duże H + rozszerzenie)
+import HeroGlobal from "@/components/HeroGlobal";
 
 const HIDE_ON = ["/admin", "/login", "/register"];
 
