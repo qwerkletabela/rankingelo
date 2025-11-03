@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import hero from "@/components/hero";
-import HeroGlobal from "@/components/HeroGlobal";
+import NavBar from "@/components/NavBar";
+import Hero from "@/components/Hero";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -15,11 +15,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pl">
       <body>
-        <div className="container-outer">
-          <NavBar />
-          <HeroGlobal />   {/* <- hero w całej aplikacji, ale ukryty na admin/login */}
-          {children}
-        </div>
+        <NavBar />
+        <Hero mode="auto" /> {/* ukryje się na /admin, /login, /register */}
+        {children}
       </body>
     </html>
   );
