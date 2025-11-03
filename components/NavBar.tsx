@@ -1,38 +1,66 @@
 "use client";
-import Link from "next/link";
-import { BarChart3, Users, Medal, Lock, LogOut } from "lucide-react";
-import { supabaseBrowser } from "@/lib/supabase/client";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Puzzle, LogOut, LogIn, Shield } from "lucide-react";
+import { supabaseBrowser } from "@/lib/supabase/client";
+import { useEffect, useState } from "react";
 
 export default function NavBar() {
-  const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const pathname = usePathname();
+  const [email, setEmail] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabaseBrowser.auth.getUser();
+      setEmail(user?.email ?? null);
+      setChecking(false);
+    })();
+  }, []);
+
+  const isActive = (p: string) => pathname === p;
 
   async function signOut() {
-    setLoading(true);
     await supabaseBrowser.auth.signOut();
-    router.refresh();
-    setLoading(false);
+    window.location.href = "/"; // twarde odświeżenie, żeby wyczyścić SSR
   }
 
   return (
-    <header className="sticky top-0 z-20 bg-white/70 backdrop-blur border-b border-gray-100">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-6 h-6" />
-          <Link href="/" className="font-semibold">Ranking Elo</Link>
-        </div>
-        <nav className="flex items-center gap-6 text-sm text-gray-600">
-          <Link href="/" className="hover:text-black inline-flex items-center gap-1"><Users className="w-4 h-4" />Ranking</Link>
-          <Link href="/matches" className="hover:text-black inline-flex items-center gap-1"><Medal className="w-4 h-4" />Mecze</Link>
-          <Link href="/admin" className="hover:text-black inline-flex items-center gap-1"><Lock className="w-4 h-4" />Admin</Link>
-          <button onClick={signOut} disabled={loading} className="inline-flex items-center gap-1 text-gray-600 hover:text-black">
-            <LogOut className="w-4 h-4" />Wyloguj
-          </button>
+    <header className="navbar">
+      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
+        {/* Logo / Brand */}
+        <Link href="/" className="flex items-center gap-2 text-white">
+          <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center ring-1 ring-white/20">
+            <Puzzle className="w-5 h-5" />
+          </div>
+          <span className="font-semibold tracking-tight">Rummikub & Qwirkle</span>
+        </Link>
+
+        {/* Links */}
+        <nav className="ml-auto hidden sm:flex items-center gap-6">
+          <Link href="/" className={`nav-link ${isActive("/") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Ranking</Link>
+          <Link href="/matches" className={`nav-link ${isActive("/matches") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Mecze</Link>
+          <Link href="/admin" className={`nav-link ${pathname?.startsWith("/admin") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Admin</Link>
         </nav>
+
+        {/* CTA / Auth */}
+        <div className="ml-2 flex items-center gap-2">
+          {!checking && email ? (
+            <>
+              <span className="hidden md:inline text-xs text-white/80">{email}</span>
+              <button onClick={signOut} className="btn btn-ghost text-white/90">
+                <LogOut className="w-4 h-4 mr-2" /> Wyloguj
+              </button>
+            </>
+          ) : (
+            <Link href="/login" className="btn btn-primary">
+              <LogIn className="w-4 h-4 mr-2" /> Zaloguj
+            </Link>
+          )}
+        </div>
       </div>
     </header>
   );
 }
+
