@@ -1,5 +1,5 @@
 import NavBar from "@/components/NavBar";
-import Hero from "@/components/Hero";
+// import Hero from "@/components/Hero";
 import StatCard from "@/components/StatCard";
 import RankingTable from "@/components/RankingTable";
 import RecentMatchesTable from "@/components/RecentMatchesTable";
