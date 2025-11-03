@@ -1,11 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import TournamentsList from "@/components/TournamentsList";
+import TournamentsMap from "@/components/TournamentsMap";
 
 export default async function TournamentsPage() {
   const supabase = createClient();
   const { data } = await supabase
     .from("turniej")
-    .select("id, nazwa, data_turnieju, godzina_turnieju, gsheet_url")
+    .select("id, nazwa, data_turnieju, godzina_turnieju, gsheet_url, lat, lng")
     .order("data_turnieju", { ascending: true });
 
   const items = data ?? [];
@@ -13,9 +14,12 @@ export default async function TournamentsPage() {
   return (
     <main>
       <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6">
+        {/* MAPA (pokazuje się tylko gdy są współrzędne) */}
+        <TournamentsMap items={items as any} />
+
         <div className="card">
           <h2 className="font-semibold mb-4">Turnieje</h2>
-          <TournamentsList items={items} />
+          <TournamentsList items={items as any} />
         </div>
       </div>
     </main>
