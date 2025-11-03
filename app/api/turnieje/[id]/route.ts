@@ -9,21 +9,36 @@ function extractIdFromUrl(u: string): string | null {
   return m ? m[1] : null;
 }
 
+/** Zwraca {res} jeśli brak uprawnień, albo {supabase} gdy OK */
 async function requireAdmin() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: { status: 401, msg: "Unauthorized" }, supabase };
-  const { data: me } = await supabase.from("users").select("ranga").eq("id", user.id).maybeSingle();
-  if (me?.ranga !== "admin") return { error: { status: 403, msg: "Forbidden" }, supabase };
+  if (!user) {
+    return { res: Response.json({ error: "Unauthorized" }, { status: 401 }) };
+  }
+  const { data: me } = await supabase
+    .from("users")
+    .select("ranga")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (me?.ranga !== "admin") {
+    return { res: Response.json({ error: "Forbidden" }, { status: 403 }) };
+  }
   return { supabase };
 }
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const gate = await requireAdmin();
-  if ("error" in gate) return Response.json({ error: gate.error.msg }, { status: gate.error.status });
+  if ("res" in gate) return gate.res;
   const { supabase } = gate;
 
-  const { data, error } = await supabase.from("turniej").select("*").eq("id", params.id).maybeSingle();
+  const { data, error } = await supabase
+    .from("turniej")
+    .select("*")
+    .eq("id", params.id)
+    .maybeSingle();
+
   if (error) return Response.json({ error: error.message }, { status: 500 });
   if (!data) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json({ data }, { status: 200 });
@@ -31,20 +46,25 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   const gate = await requireAdmin();
-  if ("error" in gate) return Response.json({ error: gate.error.msg }, { status: gate.error.status });
+  if ("res" in gate) return gate.res;
   const { supabase } = gate;
 
-  const body = await req.json().catch(() => ({}));
-
+  const body = await req.json().catch(() => ({} as any));
   const payload: Record<string, any> = {};
+
   if (typeof body.nazwa === "string") payload.nazwa = body.nazwa.trim();
   if (typeof body.gsheet_url === "string") payload.gsheet_url = body.gsheet_url.trim();
-  if (typeof body.gsheet_id === "string" || body.gsheet_id === null) payload.gsheet_id = body.gsheet_id ?? null;
-  if (!payload.gsheet_id && payload.gsheet_url) payload.gsheet_id = extractIdFromUrl(payload.gsheet_url);
+  if (typeof body.gsheet_id === "string" || body.gsheet_id === null) {
+    payload.gsheet_id = body.gsheet_id ?? null;
+  }
+  if (!payload.gsheet_id && payload.gsheet_url) {
+    payload.gsheet_id = extractIdFromUrl(payload.gsheet_url);
+  }
   if (typeof body.arkusz_nazwa === "string") payload.arkusz_nazwa = body.arkusz_nazwa.trim();
   if (typeof body.kolumna_nazwisk === "string") payload.kolumna_nazwisk = body.kolumna_nazwisk.toUpperCase().trim();
-  if (typeof body.pierwszy_wiersz_z_nazwiskiem !== "undefined")
+  if (typeof body.pierwszy_wiersz_z_nazwiskiem !== "undefined") {
     payload.pierwszy_wiersz_z_nazwiskiem = Number(body.pierwszy_wiersz_z_nazwiskiem || 2);
+  }
 
   if (Object.keys(payload).length === 0) {
     return Response.json({ error: "Nic do zaktualizowania" }, { status: 400 });
@@ -63,7 +83,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
 export async function DELETE(_: Request, { params }: { params: { id: string } }) {
   const gate = await requireAdmin();
-  if ("error" in gate) return Response.json({ error: gate.error.msg }, { status: gate.error.status });
+  if ("res" in gate) return gate.res;
   const { supabase } = gate;
 
   const { error } = await supabase.from("turniej").delete().eq("id", params.id);
