@@ -1,5 +1,6 @@
 import NavBar from "@/components/NavBar";
 import Hero from "@/components/Hero";
+import HeroGlobal from "@/components/HeroGlobal";
 import StatCard from "@/components/StatCard";
 import RankingTable from "@/components/RankingTable";
 import RecentMatchesTable from "@/components/RecentMatchesTable";
@@ -14,7 +15,7 @@ export default function Page() {
   return (
     <main>
       <NavBar />
-      
+      <HeroGlobal />
 
       <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
