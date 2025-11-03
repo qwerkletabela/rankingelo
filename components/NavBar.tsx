@@ -34,7 +34,7 @@ export default function NavBar() {
           <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center ring-1 ring-white/20">
             <Puzzle className="w-5 h-5" />
           </div>
-          <span className="font-semibold tracking-tight">Rummikub & Qwirkle</span>
+          <span className="font-semibold tracking-tight">Ranking</span>
         </Link>
 
         {/* Links */}
