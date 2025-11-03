@@ -8,7 +8,7 @@ export default async function AdminPage() {
   if (!user) {
     return (
       <main>
-        <div className="max-w-6xl mx-auto px-4 py-6">
+        <div className="max-w-6xl mx-auto px-4 -mt-12">
           <div className="rounded-lg bg-yellow-50 text-yellow-800 border border-yellow-200 px-4 py-3">
             Nie jesteś zalogowany. <a className="underline" href="/login">Przejdź do logowania</a>.
           </div>
