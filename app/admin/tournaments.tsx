@@ -1,9 +1,11 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { ChevronDown, ChevronRight, Save, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Save, Trash2, X, MapPin } from "lucide-react";
 
-type Turniej = {
+/* ===== Typy ===== */
+type TurniejRow = {
   id: string;
   nazwa: string;
   gsheet_url: string;
@@ -12,12 +14,29 @@ type Turniej = {
   kolumna_nazwisk: string;
   pierwszy_wiersz_z_nazwiskiem: number;
   data_turnieju: string | null;     // YYYY-MM-DD
-  godzina_turnieju: string | null;  // HH:MM:SS (w DB)
+  godzina_turnieju: string | null;  // HH:MM:SS
+  lat: number | null;
+  lng: number | null;
   created_at?: string;
 };
 
+type EditState = {
+  id?: string;
+  nazwa?: string;
+  gsheet_url?: string;
+  gsheet_id?: string | null;
+  arkusz_nazwa?: string;
+  kolumna_nazwisk?: string;
+  pierwszy_wiersz_z_nazwiskiem?: string; // trzymamy w input jako string
+  data_turnieju?: string | null;
+  godzina_turnieju?: string | null;      // "HH:MM"
+  lat?: string | null;                   // input
+  lng?: string | null;                   // input
+};
+
+/* ===== Utils ===== */
 function extractIdFromUrl(url: string): string | null {
-  const m = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  const m = url?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
 }
 function toTimeInput(v?: string | null) {
@@ -25,66 +44,97 @@ function toTimeInput(v?: string | null) {
   return v.slice(0, 5); // "HH:MM:SS" -> "HH:MM"
 }
 
+/* ===== Komponent ===== */
 export default function AdminTournamentPanel() {
-  // formularz dodawania
+  /* Formularz dodawania */
   const [nazwa, setNazwa] = useState("");
   const [gsheetUrl, setGsheetUrl] = useState("");
   const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
   const [kolumnaNazwisk, setKolumnaNazwisk] = useState("B");
   const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
   const [dataTurnieju, setDataTurnieju] = useState<string>("");
-  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
+  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>(""); // "HH:MM"
+  const [lat, setLat] = useState<string>("");
+  const [lng, setLng] = useState<string>("");
 
-  // lista
-  const [list, setList] = useState<Turniej[]>([]);
+  /* Lista + edycja */
+  const [list, setList] = useState<TurniejRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [editRow, setEditRow] = useState<Partial<Turniej>>({});
+  const [editRow, setEditRow] = useState<EditState>({});
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
+  /* Komunikaty */
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  /* Pobranie listy */
   async function loadList() {
     const { data, error } = await supabaseBrowser
       .from("turniej")
       .select("*")
       .order("created_at", { ascending: false });
     if (error) setErr(error.message);
-    else setList((data || []) as Turniej[]);
+    else setList((data || []) as TurniejRow[]);
   }
-  useEffect(() => { loadList(); }, []);
+  useEffect(() => {
+    loadList();
+  }, []);
 
+  /* Dodawanie */
   async function addTurniej(e: React.FormEvent) {
     e.preventDefault();
-    setErr(null); setOk(null); setLoading(true);
-    const gsheet_id = extractIdFromUrl(gsheetUrl);
+    setErr(null);
+    setOk(null);
+    setLoading(true);
+
+    const body: any = {
+      nazwa,
+      gsheet_url: gsheetUrl,
+      gsheet_id: extractIdFromUrl(gsheetUrl),
+      arkusz_nazwa: arkuszNazwa,
+      kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
+      pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz || 2),
+      data_turnieju: dataTurnieju || null,
+      godzina_turnieju: godzinaTurnieju || null, // "HH:MM"
+    };
+
+    // lat/lng: jeżeli puste => pomiń
+    if (lat !== "") body.lat = Number(lat);
+    if (lng !== "") body.lng = Number(lng);
+
     const res = await fetch("/api/turnieje", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        nazwa,
-        gsheet_url: gsheetUrl,
-        gsheet_id,
-        arkusz_nazwa: arkuszNazwa,
-        kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
-        pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz),
-        data_turnieju: dataTurnieju || null,
-        godzina_turnieju: godzinaTurnieju || null, // "HH:MM"
-      }),
+      body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
     setLoading(false);
-    if (!res.ok) { setErr(j.error || "Błąd zapisu"); return; }
+
+    if (!res.ok) {
+      setErr(j.error || "Błąd zapisu");
+      return;
+    }
+
     setOk("Dodano turniej.");
-    setNazwa(""); setGsheetUrl("");
-    setDataTurnieju(""); setGodzinaTurnieju("");
+    setNazwa("");
+    setGsheetUrl("");
+    setArkuszNazwa("Gracze");
+    setKolumnaNazwisk("B");
+    setPierwszyWiersz(2);
+    setDataTurnieju("");
+    setGodzinaTurnieju("");
+    setLat("");
+    setLng("");
     await loadList();
   }
 
-  function toggleExpand(t: Turniej) {
-    setErr(null); setOk(null); setConfirmDel(null);
-    setExpandedId(curr => (curr === t.id ? null : t.id));
+  /* Rozwijanie/ustawienie edycji */
+  function toggleExpand(t: TurniejRow) {
+    setErr(null);
+    setOk(null);
+    setConfirmDel(null);
+    setExpandedId((curr) => (curr === t.id ? null : t.id));
     setEditRow({
       id: t.id,
       nazwa: t.nazwa,
@@ -92,23 +142,43 @@ export default function AdminTournamentPanel() {
       gsheet_id: t.gsheet_id,
       arkusz_nazwa: t.arkusz_nazwa,
       kolumna_nazwisk: t.kolumna_nazwisk,
-      pierwszy_wiersz_z_nazwiskiem: t.pierwszy_wiersz_z_nazwiskiem,
+      pierwszy_wiersz_z_nazwiskiem: String(t.pierwszy_wiersz_z_nazwiskiem ?? 2),
       data_turnieju: t.data_turnieju,
-      godzina_turnieju: t.godzina_turnieju,
+      godzina_turnieju: toTimeInput(t.godzina_turnieju),
+      lat: t.lat === null || typeof t.lat === "undefined" ? "" : String(t.lat),
+      lng: t.lng === null || typeof t.lng === "undefined" ? "" : String(t.lng),
     });
   }
 
-  function onChange<K extends keyof Turniej>(key: K, val: string) {
-    setEditRow(row => ({ ...row, [key]: val }));
+  function onChange<K extends keyof EditState>(key: K, val: string) {
+    setEditRow((row) => ({ ...row, [key]: val }));
   }
 
+  /* Zapis zmian */
   async function saveEdit(id: string) {
-    setErr(null); setOk(null);
-    const body: any = { ...editRow };
-    if (body.gsheet_url && !body.gsheet_id) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
-    if (typeof body.kolumna_nazwisk === "string") body.kolumna_nazwisk = body.kolumna_nazwisk.toUpperCase();
-    if (typeof body.data_turnieju !== "undefined" && body.data_turnieju === "") body.data_turnieju = null;
-    if (typeof body.godzina_turnieju !== "undefined" && body.godzina_turnieju === "") body.godzina_turnieju = null;
+    setErr(null);
+    setOk(null);
+
+    const body: any = {};
+    if ("nazwa" in editRow) body.nazwa = (editRow.nazwa || "").trim();
+    if ("gsheet_url" in editRow) body.gsheet_url = (editRow.gsheet_url || "").trim();
+    if ("gsheet_id" in editRow) body.gsheet_id = editRow.gsheet_id ?? null;
+    if (!body.gsheet_id && body.gsheet_url) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
+    if ("arkusz_nazwa" in editRow) body.arkusz_nazwa = (editRow.arkusz_nazwa || "").trim();
+    if ("kolumna_nazwisk" in editRow)
+      body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
+    if ("pierwszy_wiersz_z_nazwiskiem" in editRow)
+      body.pierwszy_wiersz_z_nazwiskiem = Number(editRow.pierwszy_wiersz_z_nazwiskiem || 2);
+
+    // data/godzina
+    if ("data_turnieju" in editRow)
+      body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
+    if ("godzina_turnieju" in editRow)
+      body.godzina_turnieju = editRow.godzina_turnieju === "" ? null : editRow.godzina_turnieju;
+
+    // lat/lng: "" -> null, inaczej string/number idzie do API (walidacja po stronie API)
+    if ("lat" in editRow) body.lat = editRow.lat === "" ? "" : editRow.lat;
+    if ("lng" in editRow) body.lng = editRow.lng === "" ? "" : editRow.lng;
 
     const res = await fetch(`/api/turnieje/${id}`, {
       method: "PATCH",
@@ -116,11 +186,15 @@ export default function AdminTournamentPanel() {
       body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) { setErr(j.error || "Błąd aktualizacji"); return; }
+    if (!res.ok) {
+      setErr(j.error || "Błąd aktualizacji");
+      return;
+    }
     setOk("Zapisano zmiany.");
     await loadList();
   }
 
+  /* Usuwanie */
   async function doDelete(id: string) {
     const res = await fetch(`/api/turnieje/${id}`, { method: "DELETE" });
     if (!res.ok && res.status !== 204) {
@@ -133,62 +207,65 @@ export default function AdminTournamentPanel() {
     await loadList();
   }
 
-  const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
+  const canSaveNew =
+    nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
   return (
     <div className="grid gap-6">
-      {/* Dodawanie */}
+      {/* ===== Dodawanie ===== */}
       <div className="card">
         <h3 className="font-semibold mb-4">Dodaj turniej</h3>
+
         <form onSubmit={addTurniej} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Nazwa</div>
-            <input value={nazwa} onChange={(e)=>setNazwa(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2" required />
-          </label>
-          <label className="text-sm md:col-span-2">
-            <div className="text-gray-600 mb-1">Link do Google Sheets</div>
-            <input value={gsheetUrl} onChange={(e)=>setGsheetUrl(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-              placeholder="https://docs.google.com/spreadsheets/d/..." required />
-          </label>
-
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Nazwa arkusza (karta)</div>
-            <input value={arkuszNazwa} onChange={(e)=>setArkuszNazwa(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2" required />
-          </label>
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Kolumna z nazwiskami</div>
-            <input value={kolumnaNazwisk} onChange={(e)=>setKolumnaNazwisk(e.target.value.toUpperCase())}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2" pattern="[A-Za-z]{1,3}" required />
-          </label>
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Pierwszy wiersz z nazwiskiem</div>
-            <input type="number" min={1} value={pierwszyWiersz}
-              onChange={(e)=>setPierwszyWiersz(parseInt(e.target.value||"1"))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2" required />
-          </label>
-
-          {/* Nowe pola: data + godzina */}
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Data turnieju</div>
-            <input
-              type="date"
-              value={dataTurnieju}
-              onChange={(e)=>setDataTurnieju(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </label>
-          <label className="text-sm">
-            <div className="text-gray-600 mb-1">Godzina rozpoczęcia</div>
-            <input
-              type="time"
-              value={godzinaTurnieju}
-              onChange={(e)=>setGodzinaTurnieju(e.target.value)} // "HH:MM"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </label>
+          <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
+          <Field
+            label="Link do Google Sheets"
+            value={gsheetUrl}
+            onChange={setGsheetUrl}
+            className="md:col-span-2"
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+          />
+          <Field label="Nazwa arkusza (karta)" value={arkuszNazwa} onChange={setArkuszNazwa} />
+          <Field
+            label="Kolumna z nazwiskami"
+            value={kolumnaNazwisk}
+            onChange={(v) => setKolumnaNazwisk(v.toUpperCase())}
+            pattern="[A-Za-z]{1,3}"
+          />
+          <Field
+            label="Pierwszy wiersz z nazwiskiem"
+            type="number"
+            value={String(pierwszyWiersz)}
+            onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
+          />
+          <Field
+            label="Data turnieju"
+            type="date"
+            value={dataTurnieju}
+            onChange={setDataTurnieju}
+          />
+          <Field
+            label="Godzina rozpoczęcia"
+            type="time"
+            value={godzinaTurnieju}
+            onChange={setGodzinaTurnieju}
+          />
+          <Field
+            label="Szerokość (lat)"
+            type="number"
+            value={lat}
+            onChange={setLat}
+            step="any"
+            placeholder="52.2297"
+          />
+          <Field
+            label="Długość (lng)"
+            type="number"
+            value={lng}
+            onChange={setLng}
+            step="any"
+            placeholder="21.0122"
+          />
 
           <div className="md:col-span-2">
             {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
@@ -200,7 +277,7 @@ export default function AdminTournamentPanel() {
         </form>
       </div>
 
-      {/* Lista — tylko nazwa; obok OSOBNO data i godzina (etykiety) */}
+      {/* ===== Lista ===== */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Twoje turnieje</h3>
@@ -219,7 +296,8 @@ export default function AdminTournamentPanel() {
               {list.map((t) => {
                 const open = expandedId === t.id;
                 const datePart = t.data_turnieju || null;
-                const timePart = t.godzina_turnieju ? t.godzina_turnieju.slice(0,5) : null;
+                const timePart = toTimeInput(t.godzina_turnieju);
+                const hasGeo = typeof t.lat === "number" && typeof t.lng === "number";
 
                 return (
                   <>
@@ -241,13 +319,15 @@ export default function AdminTournamentPanel() {
                         </span>
                         <span className="ml-3 inline-flex items-center gap-2">
                           {datePart && (
-                            <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">
-                              {datePart}
-                            </span>
+                            <Chip>{datePart}</Chip>
                           )}
                           {timePart && (
-                            <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">
-                              {timePart}
+                            <Chip>{timePart}</Chip>
+                          )}
+                          {hasGeo && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-gray-600">
+                              <MapPin className="w-3 h-3" />
+                              {t.lat?.toFixed(4)}, {t.lng?.toFixed(4)}
                             </span>
                           )}
                         </span>
@@ -277,10 +357,8 @@ export default function AdminTournamentPanel() {
                               <Field
                                 label="Pierwszy wiersz z nazwiskiem"
                                 type="number"
-                                value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? 2)}
-                                onChange={(v) =>
-                                  onChange("pierwszy_wiersz_z_nazwiskiem", String(Number(v || 2)))
-                                }
+                                value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")}
+                                onChange={(v) => onChange("pierwszy_wiersz_z_nazwiskiem", v)}
                               />
                               <Field
                                 label="Link do Google Sheets"
@@ -292,40 +370,63 @@ export default function AdminTournamentPanel() {
                                     gsheet_id: extractIdFromUrl(v) || null,
                                   }))
                                 }
+                                className="md:col-span-2"
                               />
-                              {/* Data i godzina — osobne pola */}
                               <Field
                                 label="Data turnieju"
                                 type="date"
                                 value={String(editRow.data_turnieju ?? "")}
-                                onChange={(v) => setEditRow(s => ({ ...s, data_turnieju: v || null }))}
+                                onChange={(v) => setEditRow((s) => ({ ...s, data_turnieju: v || null }))}
                               />
                               <Field
                                 label="Godzina rozpoczęcia"
                                 type="time"
-                                value={toTimeInput(editRow.godzina_turnieju)}
-                                onChange={(v) => setEditRow(s => ({ ...s, godzina_turnieju: v || null }))}
+                                value={String(editRow.godzina_turnieju ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))}
+                              />
+                              <Field
+                                label="Szerokość (lat)"
+                                type="number"
+                                value={String(editRow.lat ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, lat: v }))}
+                                step="any"
+                              />
+                              <Field
+                                label="Długość (lng)"
+                                type="number"
+                                value={String(editRow.lng ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, lng: v }))}
+                                step="any"
                               />
                             </div>
 
                             {/* Akcje */}
                             <div className="mt-4 flex flex-wrap gap-2">
                               <button
-                                onClick={(e) => { e.stopPropagation(); saveEdit(t.id); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  saveEdit(t.id);
+                                }}
                                 className="btn btn-primary inline-flex items-center gap-2"
                               >
                                 <Save className="w-4 h-4" />
                                 Zapisz zmiany
                               </button>
                               <button
-                                onClick={(e) => { e.stopPropagation(); setExpandedId(null); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedId(null);
+                                }}
                                 className="btn btn-ghost inline-flex items-center gap-2"
                               >
                                 <X className="w-4 h-4" />
                                 Zamknij
                               </button>
                               <button
-                                onClick={(e) => { e.stopPropagation(); setConfirmDel(t.id); }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDel(t.id);
+                                }}
                                 className="btn btn-danger inline-flex items-center gap-2 ml-auto"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -338,8 +439,24 @@ export default function AdminTournamentPanel() {
                               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 text-red-700 p-3">
                                 Usunąć ten turniej? Tej operacji nie można cofnąć.
                                 <div className="mt-2 flex gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); doDelete(t.id); }} className="btn btn-danger">Usuń</button>
-                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDel(null); }} className="btn btn-ghost">Anuluj</button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      doDelete(t.id);
+                                    }}
+                                    className="btn btn-danger"
+                                  >
+                                    Usuń
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setConfirmDel(null);
+                                    }}
+                                    className="btn btn-ghost"
+                                  >
+                                    Anuluj
+                                  </button>
                                 </div>
                               </div>
                             )}
@@ -365,27 +482,46 @@ export default function AdminTournamentPanel() {
   );
 }
 
-/* ——— Prosty input ——— */
+/* ===== Małe pomocnicze komponenty ===== */
 function Field({
   label,
   value,
   onChange,
   type = "text",
+  className = "",
+  placeholder,
+  pattern,
+  step,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: React.InputHTMLAttributes<HTMLInputElement>["type"];
+  className?: string;
+  placeholder?: string;
+  pattern?: string;
+  step?: string;
 }) {
   return (
-    <label className="text-sm grid gap-1">
+    <label className={`text-sm grid gap-1 ${className}`}>
       <span className="text-gray-600">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        pattern={pattern}
+        step={step}
         className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-300"
       />
     </label>
+  );
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">
+      {children}
+    </span>
   );
 }
