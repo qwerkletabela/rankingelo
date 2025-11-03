@@ -1,22 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
+// dozwolone cele przekierowania po zalogowaniu
 const ALLOWED = ["/", "/admin", "/turnieje", "/matches", "/mecze"] as const;
 type Allowed = (typeof ALLOWED)[number];
 
 function pickAllowed(nextParam: string | null, fallback: Allowed): Allowed {
   if (!nextParam) return fallback;
-  return (ALLOWED as readonly string[]).includes(nextParam) ? (nextParam as Allowed) : fallback;
+  return (ALLOWED as readonly string[]).includes(nextParam as Allowed)
+    ? (nextParam as Allowed)
+    : fallback;
 }
 
-export default function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const nextParam = searchParams.get("next");
-
+export default function LoginForm({ nextParam }: { nextParam: string | null }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -27,7 +25,10 @@ export default function LoginForm() {
     setErr(null);
     setLoading(true);
 
-    const { data, error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabaseBrowser.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) {
       setErr(error.message);
@@ -35,10 +36,10 @@ export default function LoginForm() {
       return;
     }
 
-    // domyślny cel to "/", ale jeśli admin to "/admin"
+    // domyślny redirect: "/" (user), dla admina: "/admin"
     let target: Allowed = "/";
-
     const user = data.user;
+
     if (user) {
       const { data: me } = await supabaseBrowser
         .from("users")
@@ -46,15 +47,14 @@ export default function LoginForm() {
         .eq("id", user.id)
         .maybeSingle();
 
-      if (me?.ranga === "admin") {
-        target = "/admin";
-      }
+      if (me?.ranga === "admin") target = "/admin";
     }
 
-    // jeśli w URL było ?next=..., użyj tylko jeśli to dozwona ścieżka
+    // uwzględnij ?next=... tylko jeśli jest dozwolone
     target = pickAllowed(nextParam, target);
 
-    router.replace(target);
+    // twardy redirect (omija typedRoutes / SSR cache)
+    window.location.replace(target);
   }
 
   return (
