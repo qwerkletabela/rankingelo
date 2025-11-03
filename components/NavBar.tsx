@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Puzzle, LogOut, LogIn, Shield } from "lucide-react";
+import { Puzzle, LogOut, LogIn } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { useEffect, useState } from "react";
 
@@ -23,7 +23,7 @@ export default function NavBar() {
 
   async function signOut() {
     await supabaseBrowser.auth.signOut();
-    window.location.href = "/"; // twarde odświeżenie, żeby wyczyścić SSR
+    window.location.href = "/";
   }
 
   return (
@@ -39,9 +39,30 @@ export default function NavBar() {
 
         {/* Links */}
         <nav className="ml-auto hidden sm:flex items-center gap-6">
-          <Link href="/" className={`nav-link ${isActive("/") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Ranking</Link>
-          <Link href="/matches" className={`nav-link ${isActive("/matches") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Mecze</Link>
-          <Link href="/admin" className={`nav-link ${pathname?.startsWith("/admin") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}>Admin</Link>
+          <Link
+            href="/"
+            className={`nav-link ${isActive("/") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}
+          >
+            Ranking
+          </Link>
+          <Link
+            href="/matches"
+            className={`nav-link ${isActive("/matches") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}
+          >
+            Mecze
+          </Link>
+          <Link
+            href="/turnieje"
+            className={`nav-link ${isActive("/turnieje") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}
+          >
+            Turnieje
+          </Link>
+          <Link
+            href="/admin"
+            className={`nav-link ${pathname?.startsWith("/admin") ? "nav-link-active underline underline-offset-8 decoration-white/80" : ""}`}
+          >
+            Admin
+          </Link>
         </nav>
 
         {/* CTA / Auth */}
@@ -63,4 +84,3 @@ export default function NavBar() {
     </header>
   );
 }
-
