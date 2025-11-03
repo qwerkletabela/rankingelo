@@ -1,4 +1,3 @@
-// next.config.mjs
 import path from "path";
 
 /** @type {import('next').NextConfig} */
