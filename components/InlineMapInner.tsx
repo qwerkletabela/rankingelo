@@ -3,7 +3,7 @@
 import { MapContainer as RLMapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 
-// Bezpieczny cast – omija dziwne typy w niektórych buildach Vercela
+// Bezpieczny cast – omija dziwne typy w niektórych buildach
 const MapAny = RLMapContainer as any;
 
 export default function InlineMapInner({
