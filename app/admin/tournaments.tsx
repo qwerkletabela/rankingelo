@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight, Save, Trash2, X, MapPin } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
-/* ===== Typy ===== */
+/* ===== Typy ==-=== */
 type TurniejRow = {
   id: string;
   nazwa: string;
