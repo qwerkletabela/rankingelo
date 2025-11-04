@@ -63,14 +63,14 @@ export default function NavBar() {
   async function signOut() {
     await supabaseBrowser.auth.signOut();
     setMobileOpen(false);
-    router.replace("/"); // twardy powrót na stronę główną
+    router.replace("/");
   }
 
   const links = [
-    { href: "/", label: "Ranking" },
-    { href: "/matches", label: "Mecze" },     // jeśli masz /mecze, podmień tutaj
+    { href: "/", label: "Start" },
+    { href: "/ranking", label: "Ranking" },
+    { href: "/matches", label: "Mecze" },
     { href: "/turnieje", label: "Turnieje" },
-    // UWAGA: brak stałego linku "Admin" w top-nav
   ];
 
   return (
