@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Plus,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
@@ -39,11 +40,11 @@ type EditState = {
   gsheet_id?: string | null;
   arkusz_nazwa?: string;
   kolumna_nazwisk?: string;
-  pierwszy_wiersz_z_nazwiskiem?: string; // trzymamy w input jako string
+  pierwszy_wiersz_z_nazwiskiem?: string;
   data_turnieju?: string | null;
-  godzina_turnieju?: string | null;      // "HH:MM"
-  lat?: string | null;                   // input
-  lng?: string | null;                   // input
+  godzina_turnieju?: string | null;
+  lat?: string | null;
+  lng?: string | null;
 };
 
 /* ===== Utils ===== */
@@ -53,9 +54,8 @@ function extractIdFromUrl(url: string): string | null {
 }
 function toTimeInput(v?: string | null) {
   if (!v) return "";
-  return v.slice(0, 5); // "HH:MM:SS" -> "HH:MM"
+  return v.slice(0, 5);
 }
-// normalizacja jak fullname_norm (lower, bez diakryt., 1 spacja)
 function norm(s: string) {
   return String(s)
     .toLowerCase()
@@ -65,7 +65,7 @@ function norm(s: string) {
     .trim();
 }
 
-/* ===== Modal: Lista grających ===== */
+/* ===== Modal: Lista grających (z dodawaniem do DB) ===== */
 function PlayersListModal({
   open,
   onClose,
@@ -78,14 +78,16 @@ function PlayersListModal({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<{ name: string; exists: boolean }[]>([]);
+  const [addingIdx, setAddingIdx] = useState<number | null>(null);
+  const [addingAll, setAddingAll] = useState(false);
+  const [ok, setOk] = useState<string | null>(null);
 
   async function load() {
-    if (!open) return;
     setLoading(true);
     setErr(null);
+    setOk(null);
     setRows([]);
 
-    // 1) pobierz listę nazwisk z endpointu arkusza
     const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
     const j = await resp.json().catch(() => ({}));
     if (!resp.ok) {
@@ -104,7 +106,6 @@ function PlayersListModal({
       return;
     }
 
-    // 2) sprawdź w bazie po fullname_norm (hurtowo)
     const norms = Array.from(new Set(names.map(norm)));
     const { data: found, error } = await supabaseBrowser
       .from("gracz")
@@ -118,11 +119,7 @@ function PlayersListModal({
     }
 
     const foundSet = new Set((found || []).map((g: any) => g.fullname_norm));
-    const out = names.map((name) => ({
-      name,
-      exists: foundSet.has(norm(name)),
-    }));
-    setRows(out);
+    setRows(names.map((name) => ({ name, exists: foundSet.has(norm(name)) })));
     setLoading(false);
   }
 
@@ -130,6 +127,55 @@ function PlayersListModal({
     if (open) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tournament.id]);
+
+  async function addOne(i: number) {
+    setErr(null);
+    setOk(null);
+    setAddingIdx(i);
+    try {
+      const fullname = rows[i].name;
+      const res = await fetch("/api/gracze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullname }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Błąd dodawania gracza");
+      // Oznacz wiersz jako "exists: true" bez pełnego reloadu
+      setRows((r) => r.map((row, idx) => (idx === i ? { ...row, exists: true } : row)));
+      setOk(`Dodano: ${fullname}`);
+    } catch (e: any) {
+      setErr(e.message || "Błąd dodawania");
+    } finally {
+      setAddingIdx(null);
+    }
+  }
+
+  async function addAllMissing() {
+    setErr(null);
+    setOk(null);
+    const missing = rows.filter((r) => !r.exists).map((r) => r.name);
+    if (missing.length === 0) return;
+
+    setAddingAll(true);
+    try {
+      const res = await fetch("/api/gracze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullnames: missing }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Błąd dodawania brakujących");
+
+      // Ustaw wszystkie brakujące na exists=true
+      setRows((r) => r.map((row) => (row.exists ? row : { ...row, exists: true })));
+      setOk(`Dodano ${missing.length} brakujących graczy.`);
+    } catch (e: any) {
+      setErr(e.message || "Błąd dodawania brakujących");
+    } finally {
+      setAddingAll(false);
+    }
+  }
 
   if (!open) return null;
 
@@ -169,6 +215,11 @@ function PlayersListModal({
               {err}
             </div>
           )}
+          {ok && (
+            <div className="mb-3 rounded-lg border border-green-200 bg-green-50 text-green-700 px-3 py-2 text-sm">
+              {ok}
+            </div>
+          )}
 
           {loading ? (
             <div className="flex items-center gap-2 text-gray-600">
@@ -179,8 +230,19 @@ function PlayersListModal({
             <div className="text-sm text-gray-600">Brak nazwisk do wyświetlenia.</div>
           ) : (
             <>
-              <div className="text-sm text-gray-700 mb-2">
-                W bazie: <b>{yes}</b> / {total} &nbsp;•&nbsp; Brak w bazie: <b className="text-red-700">{no}</b>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm text-gray-700">
+                  W bazie: <b>{yes}</b> / {total} &nbsp;•&nbsp; Brak w bazie:{" "}
+                  <b className="text-red-700">{no}</b>
+                </div>
+                <button
+                  onClick={addAllMissing}
+                  disabled={addingAll || no === 0}
+                  className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {addingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  Dodaj brakujących
+                </button>
               </div>
 
               <div className="max-h-[55vh] overflow-auto rounded-lg border">
@@ -189,7 +251,8 @@ function PlayersListModal({
                     <tr>
                       <th className="text-left px-3 py-2 w-10">#</th>
                       <th className="text-left px-3 py-2">Imię i nazwisko z arkusza</th>
-                      <th className="text-left px-3 py-2 w-40">W bazie?</th>
+                      <th className="text-left px-3 py-2 w-48">Status</th>
+                      <th className="text-left px-3 py-2 w-36"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -200,12 +263,29 @@ function PlayersListModal({
                         <td className="px-3 py-2">
                           {r.exists ? (
                             <span className="inline-flex items-center gap-1 text-green-700">
-                              <CheckCircle2 className="w-4 h-4" /> Tak
+                              <CheckCircle2 className="w-4 h-4" /> W bazie
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 text-red-700">
-                              <XCircle className="w-4 h-4" /> Nie
+                              <XCircle className="w-4 h-4" /> Brak w bazie
                             </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">
+                          {!r.exists && (
+                            <button
+                              onClick={() => addOne(i)}
+                              disabled={addingIdx === i || addingAll}
+                              className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50 disabled:opacity-60"
+                              title="Dodaj tego gracza"
+                            >
+                              {addingIdx === i ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Plus className="w-4 h-4" />
+                              )}
+                              Dodaj
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -221,38 +301,37 @@ function PlayersListModal({
   );
 }
 
-/* ===== Główny komponent ===== */
+/* ===== Główny komponent: panel turniejów ===== */
 export default function AdminTournamentPanel() {
-  /* Formularz dodawania */
+  // Formularz dodawania
   const [nazwa, setNazwa] = useState("");
   const [gsheetUrl, setGsheetUrl] = useState("");
   const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
   const [kolumnaNazwisk, setKolumnaNazwisk] = useState("B");
   const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
   const [dataTurnieju, setDataTurnieju] = useState<string>("");
-  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>(""); // "HH:MM"
+  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
 
-  // współrzędne dla NOWEGO turnieju (wybierane z mapy)
+  // mapa dla nowego turnieju
   const [lat, setLat] = useState<string>("");
   const [lng, setLng] = useState<string>("");
   const [pickerNewOpen, setPickerNewOpen] = useState(false);
 
-  /* Lista + edycja */
+  // lista/edycja
   const [list, setList] = useState<TurniejRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<EditState>({});
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
 
-  /* Modal „Lista grających” */
+  // modal z listą grających
   const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
 
-  /* Komunikaty */
+  // komunikaty
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /* Pobranie listy */
   async function loadList() {
     const { data, error } = await supabaseBrowser
       .from("turniej")
@@ -265,7 +344,6 @@ export default function AdminTournamentPanel() {
     loadList();
   }, []);
 
-  /* Dodawanie */
   async function addTurniej(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -280,10 +358,9 @@ export default function AdminTournamentPanel() {
       kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
       pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz || 2),
       data_turnieju: dataTurnieju || null,
-      godzina_turnieju: godzinaTurnieju || null, // "HH:MM"
+      godzina_turnieju: godzinaTurnieju || null,
     };
 
-    // lat/lng: jeżeli puste => pomiń
     if (lat !== "") body.lat = Number(lat);
     if (lng !== "") body.lng = Number(lng);
 
@@ -301,19 +378,13 @@ export default function AdminTournamentPanel() {
     }
 
     setOk("Dodano turniej.");
-    setNazwa("");
-    setGsheetUrl("");
-    setArkuszNazwa("Gracze");
-    setKolumnaNazwisk("B");
-    setPierwszyWiersz(2);
-    setDataTurnieju("");
-    setGodzinaTurnieju("");
-    setLat("");
-    setLng("");
+    setNazwa(""); setGsheetUrl(""); setArkuszNazwa("Gracze");
+    setKolumnaNazwisk("B"); setPierwszyWiersz(2);
+    setDataTurnieju(""); setGodzinaTurnieju("");
+    setLat(""); setLng("");
     await loadList();
   }
 
-  /* Rozwijanie/ustawienie edycji */
   function toggleExpand(t: TurniejRow) {
     setErr(null);
     setOk(null);
@@ -338,7 +409,6 @@ export default function AdminTournamentPanel() {
     setEditRow((row) => ({ ...row, [key]: val }));
   }
 
-  /* Zapis zmian */
   async function saveEdit(id: string) {
     setErr(null);
     setOk(null);
@@ -349,18 +419,15 @@ export default function AdminTournamentPanel() {
     if ("gsheet_id" in editRow) body.gsheet_id = editRow.gsheet_id ?? null;
     if (!body.gsheet_id && body.gsheet_url) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
     if ("arkusz_nazwa" in editRow) body.arkusz_nazwa = (editRow.arkusz_nazwa || "").trim();
-    if ("kolumna_nazwisk" in editRow)
-      body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
+    if ("kolumna_nazwisk" in editRow) body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
     if ("pierwszy_wiersz_z_nazwiskiem" in editRow)
       body.pierwszy_wiersz_z_nazwiskiem = Number(editRow.pierwszy_wiersz_z_nazwiskiem || 2);
 
-    // data/godzina
     if ("data_turnieju" in editRow)
       body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
     if ("godzina_turnieju" in editRow)
       body.godzina_turnieju = editRow.godzina_turnieju === "" ? null : editRow.godzina_turnieju;
 
-    // lat/lng: "" -> null, inaczej string/number idzie do API (walidacja po stronie API)
     if ("lat" in editRow) body.lat = editRow.lat === "" ? "" : editRow.lat;
     if ("lng" in editRow) body.lng = editRow.lng === "" ? "" : editRow.lng;
 
@@ -378,7 +445,6 @@ export default function AdminTournamentPanel() {
     await loadList();
   }
 
-  /* Usuwanie */
   async function doDelete(id: string) {
     const res = await fetch(`/api/turnieje/${id}`, { method: "DELETE" });
     if (!res.ok && res.status !== 204) {
@@ -391,12 +457,11 @@ export default function AdminTournamentPanel() {
     await loadList();
   }
 
-  const canSaveNew =
-    nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
+  const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
   return (
     <div className="grid gap-6">
-      {/* ===== Dodawanie ===== */}
+      {/* Dodawanie */}
       <div className="card">
         <h3 className="font-semibold mb-4">Dodaj turniej</h3>
 
@@ -422,27 +487,13 @@ export default function AdminTournamentPanel() {
             value={String(pierwszyWiersz)}
             onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
           />
-          <Field
-            label="Data turnieju"
-            type="date"
-            value={dataTurnieju}
-            onChange={setDataTurnieju}
-          />
-          <Field
-            label="Godzina rozpoczęcia"
-            type="time"
-            value={godzinaTurnieju}
-            onChange={setGodzinaTurnieju}
-          />
+          <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
+          <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
 
-          {/* WYBÓR MIEJSCA – przycisk + podgląd + picker */}
+          {/* Miejsce */}
           <div className="md:col-span-2">
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setPickerNewOpen(true)}
-              >
+              <button type="button" className="btn btn-outline" onClick={() => setPickerNewOpen(true)}>
                 Ustaw miejsce
               </button>
 
@@ -455,27 +506,18 @@ export default function AdminTournamentPanel() {
               )}
 
               {(lat || lng) && (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => { setLat(""); setLng(""); }}
-                >
+                <button type="button" className="btn btn-ghost" onClick={() => { setLat(""); setLng(""); }}>
                   Wyczyść
                 </button>
               )}
             </div>
 
-            {/* Picker dla NOWEGO turnieju */}
             <MapPicker
               open={pickerNewOpen}
               initialLat={lat ? Number(lat) : null}
               initialLng={lng ? Number(lng) : null}
               onClose={() => setPickerNewOpen(false)}
-              onPick={(la, lo) => {
-                setLat(String(la));
-                setLng(String(lo));
-                setPickerNewOpen(false);
-              }}
+              onPick={(la, lo) => { setLat(String(la)); setLng(String(lo)); setPickerNewOpen(false); }}
               title="Ustaw miejsce turnieju"
             />
           </div>
@@ -490,7 +532,7 @@ export default function AdminTournamentPanel() {
         </form>
       </div>
 
-      {/* ===== Lista ===== */}
+      {/* Lista */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Twoje turnieje</h3>
@@ -512,15 +554,12 @@ export default function AdminTournamentPanel() {
                 const timePart = toTimeInput(t.godzina_turnieju);
                 const hasGeo = typeof t.lat === "number" && typeof t.lng === "number";
 
-                // w edycji podgląd preferuje editRow
-                const latPreview =
-                  editRow.id === t.id && editRow.lat !== undefined
-                    ? (editRow.lat === "" ? null : Number(editRow.lat))
-                    : t.lat;
-                const lngPreview =
-                  editRow.id === t.id && editRow.lng !== undefined
-                    ? (editRow.lng === "" ? null : Number(editRow.lng))
-                    : t.lng;
+                const latPreview = editRow.id === t.id && editRow.lat !== undefined
+                  ? (editRow.lat === "" ? null : Number(editRow.lat))
+                  : t.lat;
+                const lngPreview = editRow.id === t.id && editRow.lng !== undefined
+                  ? (editRow.lng === "" ? null : Number(editRow.lng))
+                  : t.lng;
 
                 return (
                   <>
@@ -549,15 +588,10 @@ export default function AdminTournamentPanel() {
                               {(latPreview ?? t.lat)?.toFixed(4)}, {(lngPreview ?? t.lng)?.toFixed(4)}
                             </span>
                           )}
-
-                          {/* >>> NOWY GUZIK: Lista grających (za współrzędnymi) <<< */}
                           <button
                             type="button"
                             className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setPlayersModalFor(t);
-                            }}
+                            onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}
                             title="Pokaż listę grających"
                           >
                             <Users className="w-3.5 h-3.5" />
@@ -572,182 +606,78 @@ export default function AdminTournamentPanel() {
                         <td colSpan={2} className="p-0">
                           <div className="px-4 py-4 bg-white">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Field
-                                label="Nazwa"
-                                value={String(editRow.nazwa ?? "")}
-                                onChange={(v) => onChange("nazwa", v)}
-                              />
-                              <Field
-                                label="Arkusz (nazwa karty)"
-                                value={String(editRow.arkusz_nazwa ?? "")}
-                                onChange={(v) => onChange("arkusz_nazwa", v)}
-                              />
-                              <Field
-                                label="Kolumna z nazwiskami"
-                                value={String(editRow.kolumna_nazwisk ?? "")}
-                                onChange={(v) => onChange("kolumna_nazwisk", v.toUpperCase())}
-                              />
-                              <Field
-                                label="Pierwszy wiersz z nazwiskiem"
-                                type="number"
-                                value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")}
-                                onChange={(v) => onChange("pierwszy_wiersz_z_nazwiskiem", v)}
-                              />
+                              <Field label="Nazwa" value={String(editRow.nazwa ?? "")} onChange={(v) => onChange("nazwa", v)} />
+                              <Field label="Arkusz (nazwa karty)" value={String(editRow.arkusz_nazwa ?? "")} onChange={(v) => onChange("arkusz_nazwa", v)} />
+                              <Field label="Kolumna z nazwiskami" value={String(editRow.kolumna_nazwisk ?? "")} onChange={(v) => onChange("kolumna_nazwisk", v.toUpperCase())} />
+                              <Field label="Pierwszy wiersz z nazwiskiem" type="number" value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")} onChange={(v) => onChange("pierwszy_wiersz_z_nazwiskiem", v)} />
                               <Field
                                 label="Link do Google Sheets"
                                 value={String(editRow.gsheet_url ?? "")}
-                                onChange={(v) =>
-                                  setEditRow((s) => ({
-                                    ...s,
-                                    gsheet_url: v,
-                                    gsheet_id: extractIdFromUrl(v) || null,
-                                  }))
-                                }
+                                onChange={(v) => setEditRow((s) => ({ ...s, gsheet_url: v, gsheet_id: extractIdFromUrl(v) || null }))}
                                 className="md:col-span-2"
                               />
-                              <Field
-                                label="Data turnieju"
-                                type="date"
-                                value={String(editRow.data_turnieju ?? "")}
-                                onChange={(v) => setEditRow((s) => ({ ...s, data_turnieju: v || null }))}
-                              />
-                              <Field
-                                label="Godzina rozpoczęcia"
-                                type="time"
-                                value={String(editRow.godzina_turnieju ?? "")}
-                                onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))}
-                              />
+                              <Field label="Data turnieju" type="date" value={String(editRow.data_turnieju ?? "")} onChange={(v) => setEditRow((s) => ({ ...s, data_turnieju: v || null }))} />
+                              <Field label="Godzina rozpoczęcia" type="time" value={String(editRow.godzina_turnieju ?? "")} onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))} />
 
-                              {/* WYBÓR MIEJSCA – przycisk + podgląd + picker */}
                               <div className="md:col-span-2">
                                 <div className="flex flex-wrap items-center gap-3">
-                                  <button
-                                    type="button"
-                                    className="btn btn-outline"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPickerEditOpenId(t.id);
-                                    }}
-                                  >
+                                  <button type="button" className="btn btn-outline" onClick={(e) => { e.stopPropagation(); setPickerEditOpenId(t.id); }}>
                                     Ustaw miejsce
                                   </button>
 
                                   {latPreview != null && lngPreview != null ? (
                                     <span className="text-sm text-gray-700">
-                                      Wybrano:{" "}
-                                      <b>{latPreview.toFixed(6)}, {lngPreview.toFixed(6)}</b>
+                                      Wybrano: <b>{latPreview.toFixed(6)}, {lngPreview.toFixed(6)}</b>
                                     </span>
                                   ) : (
                                     <span className="text-sm text-gray-500">Brak miejsca</span>
                                   )}
 
                                   {(editRow.lat || editRow.lng) && (
-                                    <button
-                                      type="button"
-                                      className="btn btn-ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditRow((s) => ({ ...s, lat: "", lng: "" }));
-                                      }}
-                                    >
+                                    <button type="button" className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditRow((s) => ({ ...s, lat: "", lng: "" })); }}>
                                       Wyczyść
                                     </button>
                                   )}
 
-                                  {/* >>> Ten sam przycisk „Lista grających” również w trybie edycji */}
                                   <button
                                     type="button"
                                     className="ml-auto inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setPlayersModalFor(t);
-                                    }}
+                                    onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}
                                   >
                                     <Users className="w-4 h-4" />
                                     Lista grających
                                   </button>
                                 </div>
 
-                                {/* Picker dla EDYCJI */}
                                 <MapPicker
                                   open={pickerEditOpenId === t.id}
-                                  initialLat={
-                                    (editRow.lat && editRow.lat !== "")
-                                      ? Number(editRow.lat)
-                                      : (typeof t.lat === "number" ? t.lat : null)
-                                  }
-                                  initialLng={
-                                    (editRow.lng && editRow.lng !== "")
-                                      ? Number(editRow.lng)
-                                      : (typeof t.lng === "number" ? t.lng : null)
-                                  }
+                                  initialLat={(editRow.lat && editRow.lat !== "") ? Number(editRow.lat) : (typeof t.lat === "number" ? t.lat : null)}
+                                  initialLng={(editRow.lng && editRow.lng !== "") ? Number(editRow.lng) : (typeof t.lng === "number" ? t.lng : null)}
                                   onClose={() => setPickerEditOpenId(null)}
-                                  onPick={(la, lo) => {
-                                    setEditRow((s) => ({ ...s, lat: String(la), lng: String(lo) }));
-                                    setPickerEditOpenId(null);
-                                  }}
+                                  onPick={(la, lo) => { setEditRow((s) => ({ ...s, lat: String(la), lng: String(lo) })); setPickerEditOpenId(null); }}
                                   title="Ustaw miejsce turnieju"
                                 />
                               </div>
                             </div>
 
-                            {/* Akcje */}
                             <div className="mt-4 flex flex-wrap gap-2">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  saveEdit(t.id);
-                                }}
-                                className="btn btn-primary inline-flex items-center gap-2"
-                              >
-                                <Save className="w-4 h-4" />
-                                Zapisz zmiany
+                              <button onClick={(e) => { e.stopPropagation(); saveEdit(t.id); }} className="btn btn-primary inline-flex items-center gap-2">
+                                <Save className="w-4 h-4" /> Zapisz zmiany
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedId(null);
-                                }}
-                                className="btn btn-ghost inline-flex items-center gap-2"
-                              >
-                                <X className="w-4 h-4" />
-                                Zamknij
+                              <button onClick={(e) => { e.stopPropagation(); setExpandedId(null); }} className="btn btn-ghost inline-flex items-center gap-2">
+                                <X className="w-4 h-4" /> Zamknij
                               </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setConfirmDel(t.id);
-                                }}
-                                className="btn btn-danger inline-flex items-center gap-2 ml-auto"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                                Usuń
+                              <button onClick={(e) => { e.stopPropagation(); setConfirmDel(t.id); }} className="btn btn-danger inline-flex items-center gap-2 ml-auto">
+                                <Trash2 className="w-4 h-4" /> Usuń
                               </button>
                             </div>
 
-                            {/* Potwierdzenie usunięcia */}
                             {confirmDel === t.id && (
                               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 text-red-700 p-3">
                                 Usunąć ten turniej? Tej operacji nie można cofnąć.
                                 <div className="mt-2 flex gap-2">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      doDelete(t.id);
-                                    }}
-                                    className="btn btn-danger"
-                                  >
-                                    Usuń
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setConfirmDel(null);
-                                    }}
-                                    className="btn btn-ghost"
-                                  >
-                                    Anuluj
-                                  </button>
+                                  <button onClick={(e) => { e.stopPropagation(); doDelete(t.id); }} className="btn btn-danger">Usuń</button>
+                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDel(null); }} className="btn btn-ghost">Anuluj</button>
                                 </div>
                               </div>
                             )}
@@ -782,7 +712,7 @@ export default function AdminTournamentPanel() {
   );
 }
 
-/* ===== Małe pomocnicze komponenty ===== */
+/* ===== Pomocnicze ===== */
 function Field({
   label,
   value,
