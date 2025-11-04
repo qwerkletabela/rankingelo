@@ -1,5 +1,10 @@
 "use client";
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+
+import { MapContainer as RLMapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import type { LatLngExpression } from "leaflet";
+
+// Bezpieczny cast – omija dziwne typy w niektórych buildach Vercela
+const MapAny = RLMapContainer as any;
 
 export default function InlineMapInner({
   lat,
@@ -10,26 +15,23 @@ export default function InlineMapInner({
   lng: number;
   title?: string;
 }) {
+  const center: LatLngExpression = [lat, lng];
+
   return (
     <div className="rounded-xl overflow-hidden border border-gray-200">
-      <MapContainer
-        center={[lat, lng]}
-        zoom={13}
-        style={{ height: 220, width: "100%" }}
-        scrollWheelZoom
-      >
+      <MapAny center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; OSM contributors'
+          attribution="&copy; OSM contributors"
         />
         <CircleMarker
-          center={[lat, lng]}
+          center={center as any}
           radius={10}
           pathOptions={{ color: "#8d0b0b", fillOpacity: 0.9 }}
         >
           {title ? <Popup>{title}</Popup> : null}
         </CircleMarker>
-      </MapContainer>
+      </MapAny>
     </div>
   );
 }
