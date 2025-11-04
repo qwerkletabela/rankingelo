@@ -21,7 +21,7 @@ export default function InlineMapInner({
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-200">
-      {/* <MapAny center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom> */}
+      <MapAny center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom>
       <MapContainer center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -35,7 +35,7 @@ export default function InlineMapInner({
           {title ? <Popup>{title}</Popup> : null}
         </CircleMarker>
       </MapContainer>
-      {/* </MapAny> */}
+      </MapAny>
     </div>
   );
 }
