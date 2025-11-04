@@ -2,6 +2,9 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+
+
+import { normalizeFullname as norm } from "@/lib/norm";
 import { createClient } from "@/lib/supabase/server";
 
 /** Prosty gate: wymaga zalogowanego admina */
