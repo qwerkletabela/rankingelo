@@ -4,31 +4,30 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@/lib/supabase/server";
 
+/** Prosty gate: wymaga zalogowanego admina */
 async function requireAdmin() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { res: Response.json({ error: "Unauthorized" }, { status: 401 }) };
-  const { data: me } = await supabase.from("users").select("ranga").eq("id", user.id).maybeSingle();
-  if (me?.ranga !== "admin") return { res: Response.json({ error: "Forbidden" }, { status: 403 }) };
+
+  const { data: me } = await supabase
+    .from("users")
+    .select("ranga")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (me?.ranga !== "admin") {
+    return { res: Response.json({ error: "Forbidden" }, { status: 403 }) };
+  }
   return { supabase };
 }
 
-// normalizacja jak w fullname_norm (lower, bez znaków diakrytycznych, 1 spacja)
-function norm(s: string) {
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    // @ts-ignore (unicode property escape)
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// "Jan Maria Kowalski" -> imie: "Jan Maria", nazwisko: "Kowalski"
-function splitName(fullname: string) {
-  const s = fullname.trim().replace(/\s+/g, " ");
+/** "Jan Paweł Kowalski" -> { imie: "Jan Paweł", nazwisko: "Kowalski" } */
+function splitFullname(fullname: string): { imie: string; nazwisko: string } | null {
+  const s = String(fullname || "").trim().replace(/\s+/g, " ");
+  if (!s) return null;
   const parts = s.split(" ");
-  if (parts.length < 2) return null;
+  if (parts.length < 2) return null; // wymagamy co najmniej imię + nazwisko
   const nazwisko = parts.pop()!;
   const imie = parts.join(" ");
   return { imie, nazwisko };
@@ -39,34 +38,39 @@ export async function POST(req: Request) {
   if ("res" in gate) return gate.res;
   const { supabase } = gate;
 
-  const b = await req.json().catch(() => ({}));
-  let imie = (b.imie ? String(b.imie) : "").trim();
-  let nazwisko = (b.nazwisko ? String(b.nazwisko) : "").trim();
-  const fullname = String(b.fullname || "").trim();
+  const body = await req.json().catch(() => ({} as any));
 
-  if (!imie || !nazwisko) {
-    const split = splitName(fullname);
-    if (!split) return Response.json({ error: "Podaj pełne imię i nazwisko" }, { status: 400 });
-    imie = split.imie; nazwisko = split.nazwisko;
+  let names: string[] = [];
+  if (Array.isArray(body.fullnames)) {
+    names = body.fullnames;
+  } else if (typeof body.fullname === "string") {
+    names = [body.fullname];
   }
 
-  const fullnameNorm = norm(`${imie} ${nazwisko}`);
+  names = names.map((n) => String(n || "").trim()).filter(Boolean);
+  if (names.length === 0) {
+    return Response.json({ error: "Brak danych (fullname / fullnames)." }, { status: 400 });
+  }
 
-  // 1) jeśli istnieje — zwróć istniejącego
-  const { data: existing } = await supabase
-    .from("gracz")
-    .select("id,imie,nazwisko,ranking,fullname_norm")
-    .eq("fullname_norm", fullnameNorm)
-    .maybeSingle();
-  if (existing) return Response.json({ data: existing }, { status: 200 });
+  const rows: { imie: string; nazwisko: string }[] = [];
+  for (const raw of names) {
+    const p = splitFullname(raw);
+    if (!p) {
+      return Response.json(
+        { error: `Nieprawidłowe imię i nazwisko: "${raw}" (wymagane min. 2 wyrazy)` },
+        { status: 400 }
+      );
+    }
+    rows.push({ imie: p.imie, nazwisko: p.nazwisko }); // ranking = 1200 z DEFAULT w DB
+  }
 
-  // 2) utwórz nowego (ranking ma default 1200 w DB)
+  // Upsert po unikalnym fullname_norm (kolumna generowana w tabeli gracz)
   const { data, error } = await supabase
     .from("gracz")
-    .insert({ imie, nazwisko }) // ranking = default 1200
-    .select("id,imie,nazwisko,ranking,fullname_norm")
-    .maybeSingle();
+    .upsert(rows, { onConflict: "fullname_norm" })
+    .select("id, imie, nazwisko, ranking, fullname_norm");
 
   if (error) return Response.json({ error: error.message }, { status: 400 });
+
   return Response.json({ data }, { status: 201 });
 }
