@@ -2,10 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { ChevronDown, ChevronRight, Save, Trash2, X, MapPin } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Save,
+  Trash2,
+  X,
+  MapPin,
+  Users,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
-/* ===== Typy ==-=== */
+/* ===== Typy ===== */
 type TurniejRow = {
   id: string;
   nazwa: string;
@@ -44,8 +55,173 @@ function toTimeInput(v?: string | null) {
   if (!v) return "";
   return v.slice(0, 5); // "HH:MM:SS" -> "HH:MM"
 }
+// normalizacja jak fullname_norm (lower, bez diakryt., 1 spacja)
+function norm(s: string) {
+  return String(s)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-/* ===== Komponent ===== */
+/* ===== Modal: Lista grających ===== */
+function PlayersListModal({
+  open,
+  onClose,
+  tournament,
+}: {
+  open: boolean;
+  onClose: () => void;
+  tournament: TurniejRow;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [rows, setRows] = useState<{ name: string; exists: boolean }[]>([]);
+
+  async function load() {
+    if (!open) return;
+    setLoading(true);
+    setErr(null);
+    setRows([]);
+
+    // 1) pobierz listę nazwisk z endpointu arkusza
+    const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      setErr(j.error || "Nie udało się pobrać listy z arkusza");
+      setLoading(false);
+      return;
+    }
+    const names: string[] = (j.names || [])
+      .map((x: string) => x?.toString().trim())
+      .filter(Boolean)
+      .slice(0, 1000);
+
+    if (names.length === 0) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
+    // 2) sprawdź w bazie po fullname_norm (hurtowo)
+    const norms = Array.from(new Set(names.map(norm)));
+    const { data: found, error } = await supabaseBrowser
+      .from("gracz")
+      .select("fullname_norm")
+      .in("fullname_norm", norms);
+
+    if (error) {
+      setErr(error.message);
+      setLoading(false);
+      return;
+    }
+
+    const foundSet = new Set((found || []).map((g: any) => g.fullname_norm));
+    const out = names.map((name) => ({
+      name,
+      exists: foundSet.has(norm(name)),
+    }));
+    setRows(out);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (open) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tournament.id]);
+
+  if (!open) return null;
+
+  const total = rows.length;
+  const yes = rows.filter((r) => r.exists).length;
+  const no = total - yes;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl ring-1 ring-black/10 overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <div>
+            <div className="text-sm text-gray-500">Lista grających</div>
+            <div className="font-semibold">{tournament.nazwa}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={load}
+              className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+              title="Odśwież"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+              Odśwież
+            </button>
+            <button
+              onClick={onClose}
+              className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+            >
+              <X className="w-4 h-4" /> Zamknij
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4">
+          {err && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
+              {err}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="flex items-center gap-2 text-gray-600">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Wczytywanie listy z arkusza…
+            </div>
+          ) : total === 0 ? (
+            <div className="text-sm text-gray-600">Brak nazwisk do wyświetlenia.</div>
+          ) : (
+            <>
+              <div className="text-sm text-gray-700 mb-2">
+                W bazie: <b>{yes}</b> / {total} &nbsp;•&nbsp; Brak w bazie: <b className="text-red-700">{no}</b>
+              </div>
+
+              <div className="max-h-[55vh] overflow-auto rounded-lg border">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-3 py-2 w-10">#</th>
+                      <th className="text-left px-3 py-2">Imię i nazwisko z arkusza</th>
+                      <th className="text-left px-3 py-2 w-40">W bazie?</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-3 py-2 text-gray-500">{i + 1}</td>
+                        <td className="px-3 py-2">{r.name}</td>
+                        <td className="px-3 py-2">
+                          {r.exists ? (
+                            <span className="inline-flex items-center gap-1 text-green-700">
+                              <CheckCircle2 className="w-4 h-4" /> Tak
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-red-700">
+                              <XCircle className="w-4 h-4" /> Nie
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Główny komponent ===== */
 export default function AdminTournamentPanel() {
   /* Formularz dodawania */
   const [nazwa, setNazwa] = useState("");
@@ -67,6 +243,9 @@ export default function AdminTournamentPanel() {
   const [editRow, setEditRow] = useState<EditState>({});
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
+
+  /* Modal „Lista grających” */
+  const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
 
   /* Komunikaty */
   const [err, setErr] = useState<string | null>(null);
@@ -333,7 +512,7 @@ export default function AdminTournamentPanel() {
                 const timePart = toTimeInput(t.godzina_turnieju);
                 const hasGeo = typeof t.lat === "number" && typeof t.lng === "number";
 
-                // w edycji pokazuj preferencyjnie to, co jest w editRow (jeśli użytkownik coś już kliknął)
+                // w edycji podgląd preferuje editRow
                 const latPreview =
                   editRow.id === t.id && editRow.lat !== undefined
                     ? (editRow.lat === "" ? null : Number(editRow.lat))
@@ -370,6 +549,20 @@ export default function AdminTournamentPanel() {
                               {(latPreview ?? t.lat)?.toFixed(4)}, {(lngPreview ?? t.lng)?.toFixed(4)}
                             </span>
                           )}
+
+                          {/* >>> NOWY GUZIK: Lista grających (za współrzędnymi) <<< */}
+                          <button
+                            type="button"
+                            className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPlayersModalFor(t);
+                            }}
+                            title="Pokaż listę grających"
+                          >
+                            <Users className="w-3.5 h-3.5" />
+                            Lista grających
+                          </button>
                         </span>
                       </td>
                     </tr>
@@ -460,6 +653,19 @@ export default function AdminTournamentPanel() {
                                       Wyczyść
                                     </button>
                                   )}
+
+                                  {/* >>> Ten sam przycisk „Lista grających” również w trybie edycji */}
+                                  <button
+                                    type="button"
+                                    className="ml-auto inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPlayersModalFor(t);
+                                    }}
+                                  >
+                                    <Users className="w-4 h-4" />
+                                    Lista grających
+                                  </button>
                                 </div>
 
                                 {/* Picker dla EDYCJI */}
@@ -563,6 +769,15 @@ export default function AdminTournamentPanel() {
           </table>
         </div>
       </div>
+
+      {/* Modal „Lista grających” */}
+      {playersModalFor && (
+        <PlayersListModal
+          open={!!playersModalFor}
+          onClose={() => setPlayersModalFor(null)}
+          tournament={playersModalFor}
+        />
+      )}
     </div>
   );
 }
