@@ -1,9 +1,8 @@
 "use client";
 
 import { MapContainer as RLMapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
-import type { LatLngExpression } from "leaflet";
 
-// Bezpieczny cast – omija dziwne typy w niektórych buildach
+// Bezpieczny cast – omija dziwne typy w niektórych buildach Vercela
 const MapAny = RLMapContainer as any;
 
 export default function InlineMapInner({
@@ -15,11 +14,12 @@ export default function InlineMapInner({
   lng: number;
   title?: string;
 }) {
-  const center: LatLngExpression = [lat, lng];
+  // zamiast importu LatLngExpression użyj prostego tupla + cast
+  const center = [lat, lng] as [number, number];
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-200">
-      <MapAny center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom>
+      <MapAny center={center} zoom={13} style={{ height: 220, width: "100%" }} scrollWheelZoom={true}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="&copy; OSM contributors"
