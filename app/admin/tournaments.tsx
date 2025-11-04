@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { ChevronDown, ChevronRight, Save, Trash2, X, MapPin } from "lucide-react";
+import MapPicker from "@/components/MapPicker";
 
 /* ===== Typy ===== */
 type TurniejRow = {
@@ -54,14 +55,18 @@ export default function AdminTournamentPanel() {
   const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
   const [dataTurnieju, setDataTurnieju] = useState<string>("");
   const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>(""); // "HH:MM"
+
+  // współrzędne dla NOWEGO turnieju (wybierane z mapy)
   const [lat, setLat] = useState<string>("");
   const [lng, setLng] = useState<string>("");
+  const [pickerNewOpen, setPickerNewOpen] = useState(false);
 
   /* Lista + edycja */
   const [list, setList] = useState<TurniejRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<EditState>({});
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
+  const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
 
   /* Komunikaty */
   const [err, setErr] = useState<string | null>(null);
@@ -145,8 +150,8 @@ export default function AdminTournamentPanel() {
       pierwszy_wiersz_z_nazwiskiem: String(t.pierwszy_wiersz_z_nazwiskiem ?? 2),
       data_turnieju: t.data_turnieju,
       godzina_turnieju: toTimeInput(t.godzina_turnieju),
-      lat: t.lat === null || typeof t.lat === "undefined" ? "" : String(t.lat),
-      lng: t.lng === null || typeof t.lng === "undefined" ? "" : String(t.lng),
+      lat: t.lat == null ? "" : String(t.lat),
+      lng: t.lng == null ? "" : String(t.lng),
     });
   }
 
@@ -250,22 +255,51 @@ export default function AdminTournamentPanel() {
             value={godzinaTurnieju}
             onChange={setGodzinaTurnieju}
           />
-          <Field
-            label="Szerokość (lat)"
-            type="number"
-            value={lat}
-            onChange={setLat}
-            step="any"
-            placeholder="52.2297"
-          />
-          <Field
-            label="Długość (lng)"
-            type="number"
-            value={lng}
-            onChange={setLng}
-            step="any"
-            placeholder="21.0122"
-          />
+
+          {/* WYBÓR MIEJSCA – przycisk + podgląd + picker */}
+          <div className="md:col-span-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setPickerNewOpen(true)}
+              >
+                Ustaw miejsce
+              </button>
+
+              {lat && lng ? (
+                <span className="text-sm text-gray-700">
+                  Wybrano: <b>{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</b>
+                </span>
+              ) : (
+                <span className="text-sm text-gray-500">Brak miejsca</span>
+              )}
+
+              {(lat || lng) && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => { setLat(""); setLng(""); }}
+                >
+                  Wyczyść
+                </button>
+              )}
+            </div>
+
+            {/* Picker dla NOWEGO turnieju */}
+            <MapPicker
+              open={pickerNewOpen}
+              initialLat={lat ? Number(lat) : null}
+              initialLng={lng ? Number(lng) : null}
+              onClose={() => setPickerNewOpen(false)}
+              onPick={(la, lo) => {
+                setLat(String(la));
+                setLng(String(lo));
+                setPickerNewOpen(false);
+              }}
+              title="Ustaw miejsce turnieju"
+            />
+          </div>
 
           <div className="md:col-span-2">
             {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
@@ -299,6 +333,16 @@ export default function AdminTournamentPanel() {
                 const timePart = toTimeInput(t.godzina_turnieju);
                 const hasGeo = typeof t.lat === "number" && typeof t.lng === "number";
 
+                // w edycji pokazuj preferencyjnie to, co jest w editRow (jeśli użytkownik coś już kliknął)
+                const latPreview =
+                  editRow.id === t.id && editRow.lat !== undefined
+                    ? (editRow.lat === "" ? null : Number(editRow.lat))
+                    : t.lat;
+                const lngPreview =
+                  editRow.id === t.id && editRow.lng !== undefined
+                    ? (editRow.lng === "" ? null : Number(editRow.lng))
+                    : t.lng;
+
                 return (
                   <>
                     <tr
@@ -318,16 +362,12 @@ export default function AdminTournamentPanel() {
                           {t.nazwa}
                         </span>
                         <span className="ml-3 inline-flex items-center gap-2">
-                          {datePart && (
-                            <Chip>{datePart}</Chip>
-                          )}
-                          {timePart && (
-                            <Chip>{timePart}</Chip>
-                          )}
-                          {hasGeo && (
+                          {datePart && <Chip>{datePart}</Chip>}
+                          {timePart && <Chip>{timePart}</Chip>}
+                          {(hasGeo || (latPreview != null && lngPreview != null)) && (
                             <span className="inline-flex items-center gap-1 text-[11px] text-gray-600">
                               <MapPin className="w-3 h-3" />
-                              {t.lat?.toFixed(4)}, {t.lng?.toFixed(4)}
+                              {(latPreview ?? t.lat)?.toFixed(4)}, {(lngPreview ?? t.lng)?.toFixed(4)}
                             </span>
                           )}
                         </span>
@@ -384,20 +424,65 @@ export default function AdminTournamentPanel() {
                                 value={String(editRow.godzina_turnieju ?? "")}
                                 onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))}
                               />
-                              <Field
-                                label="Szerokość (lat)"
-                                type="number"
-                                value={String(editRow.lat ?? "")}
-                                onChange={(v) => setEditRow((s) => ({ ...s, lat: v }))}
-                                step="any"
-                              />
-                              <Field
-                                label="Długość (lng)"
-                                type="number"
-                                value={String(editRow.lng ?? "")}
-                                onChange={(v) => setEditRow((s) => ({ ...s, lng: v }))}
-                                step="any"
-                              />
+
+                              {/* WYBÓR MIEJSCA – przycisk + podgląd + picker */}
+                              <div className="md:col-span-2">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPickerEditOpenId(t.id);
+                                    }}
+                                  >
+                                    Ustaw miejsce
+                                  </button>
+
+                                  {latPreview != null && lngPreview != null ? (
+                                    <span className="text-sm text-gray-700">
+                                      Wybrano:{" "}
+                                      <b>{latPreview.toFixed(6)}, {lngPreview.toFixed(6)}</b>
+                                    </span>
+                                  ) : (
+                                    <span className="text-sm text-gray-500">Brak miejsca</span>
+                                  )}
+
+                                  {(editRow.lat || editRow.lng) && (
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditRow((s) => ({ ...s, lat: "", lng: "" }));
+                                      }}
+                                    >
+                                      Wyczyść
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Picker dla EDYCJI */}
+                                <MapPicker
+                                  open={pickerEditOpenId === t.id}
+                                  initialLat={
+                                    (editRow.lat && editRow.lat !== "")
+                                      ? Number(editRow.lat)
+                                      : (typeof t.lat === "number" ? t.lat : null)
+                                  }
+                                  initialLng={
+                                    (editRow.lng && editRow.lng !== "")
+                                      ? Number(editRow.lng)
+                                      : (typeof t.lng === "number" ? t.lng : null)
+                                  }
+                                  onClose={() => setPickerEditOpenId(null)}
+                                  onPick={(la, lo) => {
+                                    setEditRow((s) => ({ ...s, lat: String(la), lng: String(lo) }));
+                                    setPickerEditOpenId(null);
+                                  }}
+                                  title="Ustaw miejsce turnieju"
+                                />
+                              </div>
                             </div>
 
                             {/* Akcje */}
