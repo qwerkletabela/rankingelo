@@ -42,6 +42,7 @@ export default async function AdminPage() {
           // ...albo też go usunąć — wtedy zwróć np. pustą sekcję.
         )}
       </div>
+<a href="/admin/partie/new" className="btn btn-primary">+ Dodaj partię</a>
 
 // np. w AdminPage / AdminShell, w sekcji głównej
 <div className="card">
