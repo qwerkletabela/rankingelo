@@ -5,7 +5,7 @@ type Item = {
   id: string;
   nazwa: string;
   data_turnieju: string | null;
-  godzina_turnieju: string | null; // "HH:MM:SS"
+  godzina_turnieju: string | null; 
   gsheet_url: string;
   lat: number | null;
   lng: number | null;
