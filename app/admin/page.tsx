@@ -42,6 +42,21 @@ export default async function AdminPage() {
           // ...albo też go usunąć — wtedy zwróć np. pustą sekcję.
         )}
       </div>
+
+// np. w AdminPage / AdminShell, w sekcji głównej
+<div className="card">
+  <div className="flex items-center justify-between">
+    <h3 className="font-semibold">Szybkie akcje</h3>
+    <a href="/admin/matches/new" className="btn btn-primary">
+      + Dodaj mecz
+    </a>
+  </div>
+  <p className="text-sm text-gray-600 mt-2">
+    Utwórz stół, wybierz skład i wprowadź zwycięzców partii.
+  </p>
+</div>
+
+      
     </main>
   );
 }
