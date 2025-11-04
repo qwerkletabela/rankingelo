@@ -1,3 +1,8 @@
+// app/admin/tournaments.tsx
+// Mały komentarz: zawiera panel turniejów + modal "Lista grających".
+// Dodałem loadList(retry) (1x retry + odświeżanie po powrocie do karty), żeby zminimalizować
+// sporadyczne puste wyniki z Supabase przy pierwszym wczytaniu.
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -141,6 +146,7 @@ function PlayersListModal({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Błąd dodawania gracza");
+
       // Oznacz wiersz jako "exists: true" bez pełnego reloadu
       setRows((r) => r.map((row, idx) => (idx === i ? { ...row, exists: true } : row)));
       setOk(`Dodano: ${fullname}`);
@@ -257,7 +263,7 @@ function PlayersListModal({
                   </thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={i} className="border-t">
+                      <tr key={`${r.name}-${i}`} className="border-t">
                         <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                         <td className="px-3 py-2">{r.name}</td>
                         <td className="px-3 py-2">
@@ -332,16 +338,40 @@ export default function AdminTournamentPanel() {
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function loadList() {
+  // --- NOWE: loadList z 1x retry + odświeżanie po powrocie do karty
+  async function loadList(retry = 0) {
     const { data, error } = await supabaseBrowser
       .from("turniej")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) setErr(error.message);
-    else setList((data || []) as TurniejRow[]);
+
+    if (error) {
+      if (retry < 1) {
+        setTimeout(() => loadList(retry + 1), 500);
+      } else {
+        setErr(error.message);
+      }
+      return;
+    }
+
+    if (Array.isArray(data) && data.length === 0 && retry < 1) {
+      setTimeout(() => loadList(retry + 1), 400);
+      return;
+    }
+
+    setList((data || []) as TurniejRow[]);
   }
+
   useEffect(() => {
     loadList();
+  }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadList();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   async function addTurniej(e: React.FormEvent) {
