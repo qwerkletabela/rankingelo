@@ -1,6 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
 import TournamentsList from "@/components/TournamentsList";
-import TournamentsMap from "@/components/TournamentsMap";
 
 export default async function TournamentsPage() {
   const supabase = createClient();
@@ -14,9 +13,6 @@ export default async function TournamentsPage() {
   return (
     <main>
       <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6">
-        {/* MAPA (pokazuje się tylko gdy są współrzędne) */}
-        <TournamentsMap items={items as any} />
-
         <div className="card">
           <h2 className="font-semibold mb-4">Turnieje</h2>
           <TournamentsList items={items as any} />
