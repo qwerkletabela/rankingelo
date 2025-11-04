@@ -21,6 +21,8 @@ import {
   Plus,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
+import { normalizeFullname as norm } from "@/lib/norm";
+
 
 /* ===== Typy ===== */
 type TurniejRow = {
@@ -61,14 +63,7 @@ function toTimeInput(v?: string | null) {
   if (!v) return "";
   return v.slice(0, 5);
 }
-function norm(s: string) {
-  return String(s)
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+
 
 /* ===== Modal: Lista grających (z dodawaniem do DB) ===== */
 function PlayersListModal({
