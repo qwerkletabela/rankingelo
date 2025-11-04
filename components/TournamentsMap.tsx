@@ -1,19 +1,15 @@
 "use client";
-import dynamic from "next/dynamic";
+
+// Deprecated: mapa zbiorcza została zastąpiona mapą w szczegółach turnieju (InlineMap).
+// Ten komponent pozostaje tylko po to, by nie psuć buildów jeśli gdzieś jest jeszcze import.
 
 type Item = {
   id: string;
   nazwa: string;
-  data_turnieju: string | null;
-  godzina_turnieju: string | null; 
-  gsheet_url: string;
   lat: number | null;
   lng: number | null;
 };
 
-// SSR off, bo Leaflet wymaga window
-const Inner = dynamic(() => import("./TournamentsMapInner"), { ssr: false });
-
-export default function TournamentsMap({ items }: { items: Item[] }) {
-  return <Inner items={items} />;
+export default function TournamentsMap(_props: { items: Item[] }) {
+  return null; // nic nie renderujemy
 }
