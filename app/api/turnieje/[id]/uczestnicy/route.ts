@@ -4,75 +4,58 @@ export const dynamic = "force-dynamic";
 
 import { createClient } from "@/lib/supabase/server";
 
-function extractIdFromUrl(u: string): string | null {
-  const m = u?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  return m ? m[1] : null;
+function columnToA1(col: string) {
+  return col.toUpperCase();
 }
 
-// proste czyszczenie CSV (1 kolumna)
-function parseCsvSingleCol(csv: string): string[] {
-  const lines = csv.replace(/^\uFEFF/, "").split(/\r?\n/);
-  const out: string[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // usuwamy otaczające cudzysłowy
-    const val = trimmed.replace(/^"(.*)"$/, "$1").trim();
-    if (val) out.push(val);
-  }
-  return out;
-}
-
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_: Request, { params }: { params: { id: string } }) {
+  // Bez requireAdmin — to jest tylko odczyt publicznego arkusza
   const supabase = createClient();
 
-  // pobierz konfigurację turnieju
   const { data: t, error } = await supabase
     .from("turniej")
     .select("gsheet_url, gsheet_id, arkusz_nazwa, kolumna_nazwisk, pierwszy_wiersz_z_nazwiskiem")
     .eq("id", params.id)
     .maybeSingle();
 
-  if (error) return Response.json({ error: error.message }, { status: 400 });
-  if (!t) return Response.json({ error: "Turniej nie istnieje" }, { status: 404 });
-
-  const sheetId = t.gsheet_id || extractIdFromUrl(t.gsheet_url || "");
-  if (!sheetId) {
-    return Response.json({ error: "Brak ID pliku Google Sheets" }, { status: 400 });
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500, headers: { "Cache-Control": "no-store" } });
+  }
+  if (!t) {
+    return Response.json({ error: "Not found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
 
-  const sheetName = t.arkusz_nazwa;
-  const col = String(t.kolumna_nazwisk || "A").toUpperCase();
-  const start = Number(t.pierwszy_wiersz_z_nazwiskiem || 2);
+  const fileId =
+    t.gsheet_id ||
+    (t.gsheet_url?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)?.[1] ?? null);
 
-  // GViz CSV: pozwala wskazać sheet po nazwie i range w notacji A1
-  // Przykład: .../gviz/tq?tqx=out:csv&sheet=Gracze&range=B2:B
-  const base = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq`;
-  const paramsQS = new URLSearchParams({
-    tqx: "out:csv",
-    sheet: sheetName,
-    range: `${col}${start}:${col}`,
-  });
-
-  // pobieramy CSV po stronie serwera (brak problemów z CORS)
-  const url = `${base}?${paramsQS.toString()}`;
-  const resp = await fetch(url);
-  if (!resp.ok) {
-    return Response.json(
-      {
-        error:
-          "Nie udało się pobrać arkusza. Upewnij się, że plik ma udostępnianie „każdy z linkiem (viewer)” i że nazwa karty/kolumna są poprawne.",
-        status: resp.status,
-      },
-      { status: 502 }
-    );
+  if (!fileId) {
+    return Response.json({ error: "Brak ID arkusza" }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
-  const text = await resp.text();
-  const names = parseCsvSingleCol(text)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .slice(0, 500); // safety limit
+  // Prosty odczyt CSV z publicznie udostępnionego arkusza (dla osób z linkiem)
+  // Uwaga: CORS bywa kapryśny — robimy to na serwerze (API route), więc jest OK.
+  const sheetName = encodeURIComponent(t.arkusz_nazwa);
+  const col = columnToA1(t.kolumna_nazwisk || "A");
+  const startRow = t.pierwszy_wiersz_z_nazwiskiem || 2;
 
-  return Response.json({ names }, { status: 200 });
+  const url =
+    `https://docs.google.com/spreadsheets/d/${fileId}/gviz/tq?tqx=out:csv&sheet=${sheetName}&range=${col}${startRow}:${col}`;
+
+  let names: string[] = [];
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) {
+      return Response.json({ error: `Google Sheets HTTP ${res.status}` }, { status: 502, headers: { "Cache-Control": "no-store" } });
+    }
+    const csv = await res.text();
+    names = csv
+      .split(/\r?\n/)
+      .map((s) => s.replace(/^"|"$/g, "").trim())
+      .filter(Boolean);
+  } catch (e: any) {
+    return Response.json({ error: e?.message || "Błąd pobierania arkusza" }, { status: 502, headers: { "Cache-Control": "no-store" } });
+  }
+
+  return Response.json({ names }, { status: 200, headers: { "Cache-Control": "no-store" } });
 }
