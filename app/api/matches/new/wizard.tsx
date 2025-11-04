@@ -11,7 +11,7 @@ type SheetCandidate = { raw: string; match: Gracz | null };
 export default function NewMatchWizard() {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // step1: wybór turnieju
+  // step1: wybór  turnieju
   const [turnieje, setTurnieje] = useState<Turniej[]>([]);
   const [turniejId, setTurniejId] = useState<string>("");
 
