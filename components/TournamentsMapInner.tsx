@@ -17,7 +17,7 @@ export default function InlineMapInner({
 
   // Fallback na niektórych buildach Vercel (typed routes / dziwne d.ts):
   // Jeśli nadal zobaczysz błąd o 'center', odkomentuj linie z MapAny poniżej i użyj <MapAny ...>
-  // const MapAny = MapContainer as any;
+  const MapAny = MapContainer as any;
 
   return (
     <div className="rounded-xl overflow-hidden border border-gray-200">
