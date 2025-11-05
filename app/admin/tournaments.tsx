@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
-/* ===================== Typy & utils ===================== */
+/* ===================== Typy & utils ==================== */
 type TurniejRow = {
   id: string;
   nazwa: string;
