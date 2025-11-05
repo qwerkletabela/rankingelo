@@ -1,0 +1,615 @@
+-- ============================================================
+-- 1) Rozszerzenia i helpery
+-- ============================================================
+create extension if not exists unaccent;
+create extension if not exists pgcrypto; -- gen_random_uuid()
+
+-- Unaccent IMMUTABLE (żeby działały kolumny generowane)
+create or replace function public.immutable_unaccent(text)
+returns text language sql immutable as $$
+  select public.unaccent('public.unaccent', $1)
+$$;
+
+-- Normalizator (lower + unaccent + pojedyncze spacje)
+create or replace function public.norm_txt(s text)
+returns text language sql immutable as $$
+  select regexp_replace(
+           lower(public.immutable_unaccent(coalesce(s,''))),
+           '\s+', ' ', 'g'
+         )
+$$;
+
+-- ============================================================
+-- 2) Ustawienia ELO – 1 wiersz konfiguracyjny
+-- ============================================================
+create table if not exists public.elo_settings (
+  id                        int primary key default 1,
+
+  -- punkty bazowe i podłoga
+  base_rating               numeric(10,4) not null default 1200.0000,
+  floor_rating              numeric(10,4) not null default 1000.0000,
+
+  -- progi K wg poziomów (Twoje domyślne)
+  k_lvl1_elo_max            int not null default 1399, -- <= 1399
+  k_lvl1_value              int not null default 32,
+  k_lvl2_elo_max            int not null default 1799, -- 1400..1799
+  k_lvl2_value              int not null default 24,
+  k_lvl3_elo_max            int not null default 1999, -- 1800..1999
+  k_lvl3_value              int not null default 20,
+  k_lvl4_elo_max            int not null default 2199, -- 2000..2199
+  k_lvl4_value              int not null default 16,
+  k_lvl5_value              int not null default 12,   -- >= 2200
+
+  -- bonus dla nowych (pierwsze X gier)
+  new_games_limit           int not null default 20,
+  k_bonus_new               int not null default 8,
+
+  -- mnożnik K zależnie od liczby graczy
+  k_mult_2p                 numeric(6,3) not null default 1.000,
+  k_mult_3p                 numeric(6,3) not null default 0.900,
+  k_mult_4p                 numeric(6,3) not null default 1.000,
+
+  -- dzielenie K „po parach” (żeby skala nie rosła z liczbą przeciwników)
+  pairwise_divide           boolean not null default true,
+
+  -- reset do 1200 po bezczynności
+  inactivity_days_reset     int not null default 365
+);
+
+insert into public.elo_settings (id) values (1)
+on conflict (id) do nothing;
+
+-- ============================================================
+-- 3) Encje bazowe
+-- ============================================================
+
+-- GRACZ
+create table if not exists public.gracz (
+  id               uuid primary key default gen_random_uuid(),
+  imie             text not null,
+  nazwisko         text not null,
+  rok_urodzenia    int,
+  miasto           text,
+  wojewodztwo      text,
+
+  -- bieżący ranking i statystyki (utrzymywane przez przeliczenia)
+  ranking          numeric(10,4) not null default 1200.0000,
+  games_played     int not null default 0,
+  wins             int not null default 0,
+  last_played_at   timestamptz,
+
+  -- normalizacje: nazwisko i imię+nazwisko (unikalne)
+  nazwisko_norm    text generated always as (public.norm_txt(nazwisko)) stored,
+  fullname_norm    text generated always as (public.norm_txt(imie || ' ' || nazwisko)) stored,
+
+  created_at       timestamptz not null default now()
+);
+alter table public.gracz
+  add constraint uniq_gracz_fullname_norm unique (fullname_norm);
+
+create index if not exists idx_gracz_nazwisko on public.gracz (nazwisko_norm);
+create index if not exists idx_gracz_last_played on public.gracz (last_played_at desc);
+
+-- TURNIEJ
+create table if not exists public.turniej (
+  id                           uuid primary key default gen_random_uuid(),
+  nazwa                        text not null,
+  gsheet_url                   text,
+  gsheet_id                    text,
+  arkusz_nazwa                 text,
+  kolumna_nazwisk              text,
+  pierwszy_wiersz_z_nazwiskiem int default 2,
+  data_turnieju                date,
+  godzina_turnieju             time,
+  lat                          double precision,
+  lng                          double precision,
+  created_at                   timestamptz not null default now()
+);
+create index if not exists idx_turniej_time on public.turniej (data_turnieju asc, created_at desc);
+
+-- STOŁY (grupa partii w obrębie turnieju)
+create table if not exists public.stolik (
+  id           uuid primary key default gen_random_uuid(),
+  turniej_id   uuid not null references public.turniej(id) on delete cascade,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_stolik_turniej on public.stolik (turniej_id);
+
+-- PARTIA: jedna gra przy danym stoliku
+create sequence if not exists public.partia_numer_seq;
+
+create table if not exists public.partia (
+  id                   uuid primary key default gen_random_uuid(),
+  stolik_id            uuid not null references public.stolik(id) on delete cascade,
+  nr                   int not null default 1,        -- numer partii w stoliku
+  played_at            timestamptz not null default now(),
+  numer_dodania        bigint not null default nextval('public.partia_numer_seq'), -- unikalna chronologia
+  zwyciezca_gracz_id   uuid not null references public.gracz(id) on delete restrict
+);
+alter table public.partia add constraint uniq_partia_numer_dodania unique (numer_dodania);
+
+create index if not exists idx_partia_order on public.partia (played_at asc, numer_dodania asc);
+create index if not exists idx_partia_win on public.partia (zwyciezca_gracz_id);
+
+-- MAŁE PUNKTY przegranych (zwycięzca dostaje sumę wartości bezwzględnych)
+create table if not exists public.partia_male (
+  partia_id   uuid not null references public.partia(id) on delete cascade,
+  gracz_id    uuid not null references public.gracz(id) on delete restrict,
+  punkty      numeric(10,4) not null, -- ujemne dla przegranych
+  primary key (partia_id, gracz_id),
+  check (punkty < 0)
+);
+create index if not exists idx_partia_male_gracz on public.partia_male (gracz_id);
+
+-- ZDARZENIA ELO (historia przeliczeń per gracz i partia)
+create table if not exists public.elo_event (
+  id            bigserial primary key,
+  partia_id     uuid not null references public.partia(id) on delete cascade,
+  gracz_id      uuid not null references public.gracz(id) on delete cascade,
+  elo_przed     numeric(10,4) not null,
+  elo_po        numeric(10,4) not null,
+  delta         numeric(10,4) not null,
+  k_used        numeric(10,4) not null,
+  players_count int not null,
+  created_at    timestamptz not null default now(),
+  unique (partia_id, gracz_id)
+);
+create index if not exists idx_elo_event_partia on public.elo_event (partia_id);
+create index if not exists idx_elo_event_gracz on public.elo_event (gracz_id);
+
+-- ============================================================
+-- 4) Funkcje pomocnicze K i oczekiwana szansa
+-- ============================================================
+
+-- K wg progów
+create or replace function public.k_by_rating(elo numeric)
+returns int language plpgsql immutable as $$
+declare
+  s public.elo_settings;
+begin
+  select * into s from public.elo_settings where id = 1;
+  if elo <= s.k_lvl1_elo_max then
+    return s.k_lvl1_value;
+  elsif elo <= s.k_lvl2_elo_max then
+    return s.k_lvl2_value;
+  elsif elo <= s.k_lvl3_elo_max then
+    return s.k_lvl3_value;
+  elsif elo <= s.k_lvl4_elo_max then
+    return s.k_lvl4_value;
+  else
+    return s.k_lvl5_value;
+  end if;
+end;
+$$;
+
+-- Oczekiwana szansa zwycięstwa A z B (logistic)
+create or replace function public.elo_expected(a_elo numeric, b_elo numeric)
+returns numeric language sql immutable as $$
+  select 1.0 / (1.0 + power(10.0, ((b_elo - a_elo) / 400.0)))
+$$;
+
+-- Mnożnik K zależny od liczby graczy
+create or replace function public.k_mult_players(players_count int)
+returns numeric language plpgsql immutable as $$
+declare
+  s public.elo_settings;
+begin
+  select * into s from public.elo_settings where id = 1;
+  if players_count = 2 then
+    return s.k_mult_2p;
+  elsif players_count = 3 then
+    return s.k_mult_3p;
+  else
+    return s.k_mult_4p; -- 4+ traktujemy jak 4
+  end if;
+end;
+$$;
+
+-- K efektywne: K(prog) + bonus nowicjusza, * mnożnik stołu
+create or replace function public.elo_effective_k(elo_before numeric, games_before int, players_count int)
+returns numeric language plpgsql immutable as $$
+declare
+  s public.elo_settings;
+  k int;
+  eff numeric;
+begin
+  select * into s from public.elo_settings where id = 1;
+  k := public.k_by_rating(elo_before);
+  if games_before < s.new_games_limit then
+    k := k + s.k_bonus_new;
+  end if;
+  eff := k * public.k_mult_players(players_count);
+  return eff::numeric;
+end;
+$$;
+
+-- ============================================================
+-- 5) Główna funkcja przeliczania ELO (poprawiona składnia)
+--    - pairwise winner vs każdy przegrany (+dzielenie K gdy włączone)
+--    - floor 1000 dla przegranych (zwycięzca zachowuje pełen plus)
+--    - reset do 1200 po długiej przerwie
+--    - zaokrąglanie do 4 miejsc po przecinku
+-- ============================================================
+
+create or replace function public.elo_recompute_all()
+returns void
+language plpgsql
+as $$
+declare
+  s                 public.elo_settings;
+
+  -- zmienne pętli (skalary)
+  v_partia_id       uuid;
+  v_played_at       timestamptz;
+  v_numer_dodania   bigint;
+  v_win_id          uuid;
+  v_losers_ids      uuid[];
+
+  -- stan i pomocnicze
+  floor_val         numeric(10,4);
+  players_count     int;
+  pair_div          numeric;
+  k_mult            numeric;
+
+  win_elo_before    numeric(10,4);
+  win_games_before  int;
+  win_last          timestamptz;
+  k_win             numeric;
+  delta_win_total   numeric(10,4);
+
+  los_id            uuid;
+  los_elo_before    numeric(10,4);
+  los_games_before  int;
+  los_last          timestamptz;
+  k_los             numeric;
+  exp_w             numeric;
+  delta_los_pair    numeric(10,4);
+  delta_win_pair    numeric(10,4);
+  new_los_elo       numeric(10,4);
+begin
+  select * into s from public.elo_settings where id = 1;
+
+  -- wyczyszczenie historii
+  truncate table public.elo_event;
+
+  -- temp stan rankingów
+  create temp table tmp_state (
+    gracz_id    uuid primary key,
+    elo         numeric(10,4) not null,
+    games       int not null default 0,
+    wins        int not null default 0,
+    last_played timestamptz
+  ) on commit drop;
+
+  floor_val := s.floor_rating;
+
+  -- główna pętla po partiach (chronologicznie)
+  for
+    v_partia_id, v_played_at, v_numer_dodania, v_win_id, v_losers_ids
+  in
+    select
+      p.id,
+      p.played_at,
+      p.numer_dodania,
+      p.zwyciezca_gracz_id,
+      coalesce(array_agg(pm.gracz_id) filter (where pm.gracz_id is not null), '{}')::uuid[]
+    from public.partia p
+    left join public.partia_male pm on pm.partia_id = p.id
+    group by p.id, p.played_at, p.numer_dodania, p.zwyciezca_gracz_id
+    order by p.played_at asc, p.numer_dodania asc
+  loop
+    -- zapewnij w tmp_state uczestników
+    insert into tmp_state (gracz_id, elo)
+    values (v_win_id, s.base_rating)
+    on conflict do nothing;
+
+    if array_length(v_losers_ids, 1) is not null then
+      insert into tmp_state (gracz_id, elo)
+      select unnest(v_losers_ids), s.base_rating
+      on conflict do nothing;
+    end if;
+
+    players_count := 1 + coalesce(array_length(v_losers_ids, 1), 0);
+    pair_div := case when s.pairwise_divide and players_count > 1 then 1.0 / (players_count - 1) else 1.0 end;
+    k_mult  := public.k_mult_players(players_count); -- (zmienna nieużyta dalej, zostawiona do ewentualnych rozszerzeń)
+
+    -- stan zwycięzcy
+    select t.elo, t.games, t.last_played
+      into win_elo_before, win_games_before, win_last
+    from tmp_state t
+    where t.gracz_id = v_win_id;
+
+    -- reset po bezczynności
+    if win_last is not null
+       and v_played_at - win_last > (s.inactivity_days_reset || ' days')::interval then
+      win_elo_before   := s.base_rating;
+      win_games_before := 0;
+    end if;
+
+    k_win := public.elo_effective_k(win_elo_before, win_games_before, players_count) * pair_div;
+    delta_win_total := 0.0;
+
+    -- przegrani (pairwise)
+    if array_length(v_losers_ids, 1) is not null then
+      foreach los_id in array v_losers_ids loop
+        select t.elo, t.games, t.last_played
+          into los_elo_before, los_games_before, los_last
+        from tmp_state t
+        where t.gracz_id = los_id;
+
+        if los_last is not null
+           and v_played_at - los_last > (s.inactivity_days_reset || ' days')::interval then
+          los_elo_before   := s.base_rating;
+          los_games_before := 0;
+        end if;
+
+        k_los := public.elo_effective_k(los_elo_before, los_games_before, players_count) * pair_div;
+
+        -- oczekiwanie (zwycięzca vs przegrany)
+        exp_w := public.elo_expected(win_elo_before, los_elo_before);
+
+        -- deltki parowe, 4 miejsca po przecinku
+        delta_win_pair := round(k_win * (1.0 - exp_w), 4);
+        delta_los_pair := round(k_los * (0.0 - (1.0 - exp_w)), 4); -- = -k_los * expected_loser
+
+        delta_win_total := round(delta_win_total + delta_win_pair, 4);
+
+        -- update przegranego z floor 1000
+        new_los_elo := round(los_elo_before + delta_los_pair, 4);
+        if new_los_elo < floor_val then
+          new_los_elo := floor_val;
+        end if;
+
+        -- wydarzenie przegranego
+        insert into public.elo_event (partia_id, gracz_id, elo_przed, elo_po, delta, k_used, players_count)
+        values (
+          v_partia_id, los_id, los_elo_before, new_los_elo,
+          round(new_los_elo - los_elo_before, 4),
+          k_los, players_count
+        )
+        on conflict (partia_id, gracz_id) do nothing;
+
+        -- stan przegranego
+        update tmp_state
+           set elo = new_los_elo,
+               games = games + 1,
+               last_played = v_played_at
+         where gracz_id = los_id;
+      end loop;
+    end if;
+
+    -- zwycięzca dostaje pełny plus (bez „oddawania” przez floora przegranych)
+    insert into public.elo_event (partia_id, gracz_id, elo_przed, elo_po, delta, k_used, players_count)
+    values (
+      v_partia_id,
+      v_win_id,
+      win_elo_before,
+      round(win_elo_before + delta_win_total, 4),
+      delta_win_total,
+      k_win,
+      players_count
+    )
+    on conflict (partia_id, gracz_id) do nothing;
+
+    update tmp_state
+       set elo = round(elo + delta_win_total, 4),
+           games = games + 1,
+           wins  = wins  + 1,
+           last_played = v_played_at
+     where gracz_id = v_win_id;
+
+  end loop;
+
+  -- przepisz wyniki do tabeli gracz
+  update public.gracz g
+     set ranking        = s2.elo,
+         games_played   = s2.games,
+         wins           = s2.wins,
+         last_played_at = s2.last_played
+    from tmp_state s2
+   where g.id = s2.gracz_id;
+end;
+$$;
+
+-- ============================================================
+-- 6) Widoki raportowe
+-- ============================================================
+
+-- (A) Widok „szeroki” – jeden wiersz = partia, kolumny A/B/C/D (jak w Excelu)
+create or replace view public.wyniki_wide as
+with pc as (
+  select p.id as partia_id, 1 + count(pm.gracz_id) as players_count
+  from public.partia p
+  left join public.partia_male pm on pm.partia_id = p.id
+  group by p.id
+),
+base as (
+  select
+    t.id            as turniej_id,
+    t.nazwa         as turniej,
+    s.id            as stolik_id,
+    p.id            as partia_id,
+    p.nr            as partia_nr,
+    p.played_at     as "timestamp",
+    p.numer_dodania,
+
+    g.id            as gracz_id,
+    g.imie, g.nazwisko,
+
+    ee.elo_przed,
+    ee.elo_po,
+    (ee.elo_po - ee.elo_przed) as elo_delta,
+
+    (p.zwyciezca_gracz_id = g.id) as is_winner,
+
+    coalesce(pm.punkty, 0) as male_punkty_raw,
+
+    coalesce((
+      select sum(abs(pm2.punkty)) from public.partia_male pm2
+      where pm2.partia_id = p.id
+    ), 0) as winner_male_sum,
+
+    pc.players_count,
+    ee.k_used as k_effect
+  from public.partia p
+  join public.stolik s  on s.id = p.stolik_id
+  join public.turniej t on t.id = s.turniej_id
+  join public.elo_event ee on ee.partia_id = p.id
+  join public.gracz g on g.id = ee.gracz_id
+  left join public.partia_male pm on pm.partia_id = p.id and pm.gracz_id = g.id
+  join pc on pc.partia_id = p.id
+),
+enriched as (
+  select
+    b.*,
+    case when b.is_winner then b.winner_male_sum else b.male_punkty_raw end as male_punkty
+  from base b
+),
+agg as (
+  select
+    turniej_id, turniej, stolik_id, partia_id, partia_nr, "timestamp", numer_dodania,
+    array_agg(gracz_id    order by is_winner desc, nazwisko, imie) as ids,
+    array_agg(imie        order by is_winner desc, nazwisko, imie) as imiona,
+    array_agg(nazwisko    order by is_winner desc, nazwisko, imie) as nazwiska,
+    array_agg(elo_przed   order by is_winner desc, nazwisko, imie) as elo_przed_arr,
+    array_agg(elo_po      order by is_winner desc, nazwisko, imie) as elo_po_arr,
+    array_agg(elo_delta   order by is_winner desc, nazwisko, imie) as elo_delta_arr,
+    array_agg(k_effect    order by is_winner desc, nazwisko, imie) as k_arr,
+    array_agg(male_punkty order by is_winner desc, nazwisko, imie) as male_arr
+  from enriched
+  group by turniej_id, turniej, stolik_id, partia_id, partia_nr, "timestamp", numer_dodania
+)
+select
+  a.turniej_id,
+  a.turniej,
+  a.stolik_id,
+  a.partia_id,
+  a.partia_nr,
+  a."timestamp",
+  a.numer_dodania,
+  a.ids[1]   as zwyciezca_id,
+
+  a.k_arr[1] as k_a,
+  a.k_arr[2] as k_b,
+  a.k_arr[3] as k_c,
+  a.k_arr[4] as k_d,
+
+  (a.imiona[1] || ' ' || a.nazwiska[1]) as gracz_a,
+  a.elo_przed_arr[1] as elo_a_przed,
+  a.elo_delta_arr[1] as delta_a,
+  a.elo_po_arr[1]    as elo_a_po,
+  a.male_arr[1]      as male_a,
+
+  (a.imiona[2] || ' ' || a.nazwiska[2]) as gracz_b,
+  a.elo_przed_arr[2] as elo_b_przed,
+  a.elo_delta_arr[2] as delta_b,
+  a.elo_po_arr[2]    as elo_b_po,
+  a.male_arr[2]      as male_b,
+
+  (a.imiona[3] || ' ' || a.nazwiska[3]) as gracz_c,
+  a.elo_przed_arr[3] as elo_c_przed,
+  a.elo_delta_arr[3] as delta_c,
+  a.elo_po_arr[3]    as elo_c_po,
+  a.male_arr[3]      as male_c,
+
+  (a.imiona[4] || ' ' || a.nazwiska[4]) as gracz_d,
+  a.elo_przed_arr[4] as elo_d_przed,
+  a.elo_delta_arr[4] as delta_d,
+  a.elo_po_arr[4]    as elo_d_po,
+  a.male_arr[4]      as male_d
+from agg a;
+
+-- (B) Widok „wąski” – jeden wiersz = (partia, gracz)
+create or replace view public.wyniki_rows as
+select
+  t.id            as turniej_id,
+  t.nazwa         as turniej,
+  s.id            as stolik_id,
+  p.id            as partia_id,
+  p.nr            as partia_nr,
+  p.played_at     as "timestamp",
+  p.numer_dodania,
+
+  g.id            as gracz_id,
+  g.imie || ' ' || g.nazwisko as gracz,
+
+  ee.elo_przed,
+  ee.elo_po,
+  (ee.elo_po - ee.elo_przed) as elo_delta,
+
+  (p.zwyciezca_gracz_id = g.id) as wygral,
+
+  case
+    when p.zwyciezca_gracz_id = g.id then
+      coalesce((select sum(abs(pm2.punkty)) from public.partia_male pm2 where pm2.partia_id = p.id), 0)
+    else
+      coalesce((select pm1.punkty from public.partia_male pm1 where pm1.partia_id = p.id and pm1.gracz_id = g.id), 0)
+  end as male_punkty,
+
+  ee.k_used as k_effect,
+  ee.players_count
+from public.partia p
+join public.stolik s  on s.id = p.stolik_id
+join public.turniej t on t.id = s.turniej_id
+join public.elo_event ee on ee.partia_id = p.id
+join public.gracz g on g.id = ee.gracz_id;
+
+-- ============================================================
+-- 7) Wstawianie partii (opcjonalne ułatwienia)
+-- ============================================================
+
+-- Proste dodanie partii: zwycięzca + lista przegranych (małe pkt = -1 jako placeholder)
+create or replace function public.partia_add_simple(
+  _stolik_id uuid,
+  _played_at timestamptz,
+  _winner_id uuid,
+  _losers uuid[]
+) returns uuid language plpgsql as $$
+declare
+  pid uuid;
+begin
+  insert into public.partia (stolik_id, nr, played_at, zwyciezca_gracz_id)
+  values (_stolik_id, 1, coalesce(_played_at, now()), _winner_id)
+  returning id into pid;
+
+  if _losers is not null then
+    insert into public.partia_male (partia_id, gracz_id, punkty)
+    select pid, unnest(_losers), -1.0;
+  end if;
+
+  return pid;
+end;
+$$;
+
+-- Dodanie partii ze szczegółowymi małymi punktami (ujemnymi) dla przegranych
+create or replace function public.partia_add_detailed(
+  _stolik_id uuid,
+  _played_at timestamptz,
+  _winner_id uuid,
+  _losers uuid[],
+  _losers_small numeric[]
+) returns uuid language plpgsql as $$
+declare
+  pid uuid;
+begin
+  if _losers is null or _losers_small is null or array_length(_losers,1) <> array_length(_losers_small,1) then
+    raise exception 'Niezgodne tablice przegranych i małych punktów';
+  end if;
+
+  insert into public.partia (stolik_id, nr, played_at, zwyciezca_gracz_id)
+  values (_stolik_id, 1, coalesce(_played_at, now()), _winner_id)
+  returning id into pid;
+
+  insert into public.partia_male (partia_id, gracz_id, punkty)
+  select pid, x.gid, x.mp
+  from unnest(_losers, _losers_small) as x(gid, mp);
+
+  return pid;
+end;
+$$;
+
+-- ============================================================
+-- 8) Jak przeliczyć cały ranking po zmianie ustawień K?
+--    Po edycji public.elo_settings wykonaj:
+--    select public.elo_recompute_all();
+-- ============================================================
