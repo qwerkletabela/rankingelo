@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
-// Prosty mapping na klasy „odznak” ELO (5 poziomów)
+// Prosty mapping na klasy  „odznak” ELO (5 poziomów)
 function eloBadge(elo: number) {
   if (elo >= 2200) return "badge-elo-2200";
   if (elo >= 2000) return "badge-elo-2000";
