@@ -42,6 +42,7 @@ export default function RankingPage() {
       supabaseBrowser
         .from("gracz")
         .select("id,imie,nazwisko,ranking,games_played,wins,last_played_at")
+        .gt("games_played", 0)
         .order("ranking", { ascending: false })
         .order("wins", { ascending: false })
         .order("games_played", { ascending: true })
