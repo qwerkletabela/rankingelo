@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
+/* =============== Shell (nagłówek + przycisk nowego turnieju) =============== */
+
 type Role = "admin" | "user";
 
 export default function AdminShell({ email, role }: { email: string; role: Role }) {
@@ -28,6 +30,7 @@ export default function AdminShell({ email, role }: { email: string; role: Role 
 }
 
 /* ================== Modal „Nowy turniej” ================== */
+
 function NewTournamentButton() {
   const [open, setOpen] = useState(false);
   return (
@@ -57,6 +60,10 @@ function Field({
       />
     </label>
   );
+}
+
+function Chip({ children }: { children: React.ReactNode }) {
+  return <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">{children}</span>;
 }
 
 function extractIdFromUrl(url: string): string | null {
@@ -171,6 +178,7 @@ function NewTournamentModal({ onClose }: { onClose: () => void }) {
 }
 
 /* ================== Lista turniejów ================== */
+
 type TurniejRow = {
   id: string;
   nazwa: string;
@@ -196,6 +204,9 @@ function AdminTournamentPanel() {
   const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+
+  // >>> FIX: prawdziwy stan modalu „Lista grających”
+  const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
 
   async function loadList(retry = 0) {
     const { data, error } = await supabaseBrowser
@@ -339,7 +350,7 @@ function AdminTournamentPanel() {
                           + Dodaj wyniki
                         </a>
 
-                        {/* Lista grających (z arkusza → DB) */}
+                        {/* Lista grających */}
                         <button
                           type="button"
                           className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
@@ -461,16 +472,14 @@ function AdminTournamentPanel() {
   );
 }
 
-/* ====== Lista grających – ten sam modal co wcześniej ====== */
+/* ================== Modal „Lista grających” ================== */
+
 function norm(s: string) {
   return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="inline-block rounded-full bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5">{children}</span>;
-}
-
 type PlayersListRow = { name: string; exists: boolean };
+
 function PlayersListModal({
   open, onClose, tournament,
 }: { open: boolean; onClose: () => void; tournament: TurniejRow }) {
@@ -488,7 +497,7 @@ function PlayersListModal({
     if (!resp.ok) { setErr(j.error || "Nie udało się pobrać listy"); setLoading(false); return; }
 
     const names: string[] = (j.names || []).map((x: string) => x?.toString().trim()).filter(Boolean).slice(0, 1000);
-    if (names.length === 0) { setRows([]); setLoading(false); return; }
+    if (!names.length) { setRows([]); setLoading(false); return; }
 
     const norms = Array.from(new Set(names.map(norm)));
     const { data: found, error } = await supabaseBrowser.from("gracz").select("fullname_norm").in("fullname_norm", norms);
@@ -609,8 +618,3 @@ function PlayersListModal({
     </div>
   );
 }
-
-// stan modalu gracze
-const playersModalForState = { _val: null as TurniejRow | null };
-function setPlayersModalFor(t: TurniejRow | null) { playersModalForState._val = t; }
-function get playersModalFor() { return playersModalForState._val; }
