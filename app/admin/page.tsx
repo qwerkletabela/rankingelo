@@ -1,16 +1,17 @@
-import { createClient } from "@/lib/supabase/server";
+// app/admin/page.tsx
+import { supabaseServerRSC } from "@/lib/supabase/server-rsc";
 import AdminShell from "./shell";
 
 export default async function AdminPage() {
-  const supabase = createClient();
+  // UWAGA: w RSC używamy klienta RSC (no-op dla cookies)
+  const supabase = supabaseServerRSC();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Niezalogowany: tylko skrót do logowania / dodawania turnieju
   if (!user) {
     return (
       <main>
         <div className="max-w-6xl mx-auto px-4 -mt-12 py-6">
-          <a href="/login" className="btn btn-primary">Dodaj turniej</a>
+          <a href="/login" className="btn btn-primary">Zaloguj, aby zarządzać</a>
         </div>
       </main>
     );
@@ -29,35 +30,16 @@ export default async function AdminPage() {
     <main>
       <div className="max-w-6xl mx-auto px-4 -mt-12 grid gap-6 pb-6">
         {isAdmin ? (
-          // ⬇️ Bez zielonego banera – od razu panel
           <AdminShell email={user.email ?? ""} role={role} />
         ) : (
-          // Dla zalogowanego bez roli admin możesz zostawić komunikat...
           <div className="card">
             <h3 className="font-semibold mb-2">Dostęp wymaga roli ADMIN</h3>
             <p className="text-sm text-gray-600">
               Poproś o nadanie uprawnień w tabeli <code>users</code>.
             </p>
           </div>
-          // ...albo też go usunąć — wtedy zwróć np. pustą sekcję.
         )}
       </div>
-<a href="/admin/partie/new" className="btn btn-primary">+ Dodaj partię</a>
-
-// np. w AdminPage / AdminShell, w sekcji głównej
-<div className="card">
-  <div className="flex items-center justify-between">
-    <h3 className="font-semibold">Szybkie akcje</h3>
-    <a href="/admin/matches/new" className="btn btn-primary">
-      + Dodaj mecz
-    </a>
-  </div>
-  <p className="text-sm text-gray-600 mt-2">
-    Utwórz stół, wybierz skład i wprowadź zwycięzców partii.
-  </p>
-</div>
-
-      
     </main>
   );
 }
