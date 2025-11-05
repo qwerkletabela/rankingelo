@@ -1,8 +1,3 @@
-// app/admin/tournaments.tsx
-// Mały komentarz: zawiera panel turniejów + modal "Lista grających".
-// Dodałem loadList(retry) (1x retry + odświeżanie po powrocie do karty), żeby zminimalizować
-// sporadyczne puste wyniki z Supabase przy pierwszym wczytaniu.
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,20 +14,20 @@ import {
   XCircle,
   Loader2,
   Plus,
+  Wand2,
+  PlusCircle,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
-import { normalizeFullname as norm } from "@/lib/norm";
 
-
-/* ===== Typy ===== */
+/* ===================== Typy & utils ===================== */
 type TurniejRow = {
   id: string;
   nazwa: string;
-  gsheet_url: string;
+  gsheet_url: string | null;
   gsheet_id: string | null;
-  arkusz_nazwa: string;
-  kolumna_nazwisk: string;
-  pierwszy_wiersz_z_nazwiskiem: number;
+  arkusz_nazwa: string | null;
+  kolumna_nazwisk: string | null;
+  pierwszy_wiersz_z_nazwiskiem: number | null;
   data_turnieju: string | null;     // YYYY-MM-DD
   godzina_turnieju: string | null;  // HH:MM:SS
   lat: number | null;
@@ -43,18 +38,17 @@ type TurniejRow = {
 type EditState = {
   id?: string;
   nazwa?: string;
-  gsheet_url?: string;
+  gsheet_url?: string | null;
   gsheet_id?: string | null;
-  arkusz_nazwa?: string;
-  kolumna_nazwisk?: string;
-  pierwszy_wiersz_z_nazwiskiem?: string;
+  arkusz_nazwa?: string | null;
+  kolumna_nazwisk?: string | null;
+  pierwszy_wiersz_z_nazwiskiem?: string | null;
   data_turnieju?: string | null;
   godzina_turnieju?: string | null;
   lat?: string | null;
   lng?: string | null;
 };
 
-/* ===== Utils ===== */
 function extractIdFromUrl(url: string): string | null {
   const m = url?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
@@ -63,9 +57,171 @@ function toTimeInput(v?: string | null) {
   if (!v) return "";
   return v.slice(0, 5);
 }
+function norm(s: string) {
+  return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+}
 
+/* ===================== Modal: Dodaj turniej ===================== */
+function AddTournamentModal({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [nazwa, setNazwa] = useState("");
+  const [gsheetUrl, setGsheetUrl] = useState("");
+  const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
+  const [kolumnaNazwisk, setKolumnaNazwisk] = useState("B");
+  const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
+  const [dataTurnieju, setDataTurnieju] = useState<string>("");
+  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
 
-/* ===== Modal: Lista grających (z dodawaniem do DB) ===== */
+  const [lat, setLat] = useState<string>("");
+  const [lng, setLng] = useState<string>("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      // reset po zamknięciu
+      setNazwa("");
+      setGsheetUrl("");
+      setArkuszNazwa("Gracze");
+      setKolumnaNazwisk("B");
+      setPierwszyWiersz(2);
+      setDataTurnieju("");
+      setGodzinaTurnieju("");
+      setLat("");
+      setLng("");
+      setErr(null);
+      setOk(null);
+      setLoading(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const canSave = nazwa.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!canSave) return;
+    setErr(null);
+    setOk(null);
+    setLoading(true);
+    const body: any = {
+      nazwa,
+      gsheet_url: gsheetUrl || null,
+      gsheet_id: extractIdFromUrl(gsheetUrl || "") || null,
+      arkusz_nazwa: arkuszNazwa || null,
+      kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
+      pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz || 2),
+      data_turnieju: dataTurnieju || null,
+      godzina_turnieju: godzinaTurnieju || null,
+    };
+    if (lat !== "") body.lat = Number(lat);
+    if (lng !== "") body.lng = Number(lng);
+
+    const res = await fetch("/api/turnieje", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json().catch(() => ({}));
+    setLoading(false);
+
+    if (!res.ok) {
+      setErr(j.error || "Błąd zapisu");
+      return;
+    }
+    setOk("Dodano turniej.");
+    onClose();
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] bg-black/40 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl ring-1 ring-black/10 overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <div className="font-semibold">Dodaj turniej</div>
+          <button onClick={onClose} className="btn btn-ghost inline-flex items-center gap-2">
+            <X className="w-4 h-4" /> Zamknij
+          </button>
+        </div>
+
+        <form onSubmit={save} className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
+          <Field
+            label="Link do Google Sheets"
+            value={gsheetUrl}
+            onChange={setGsheetUrl}
+            className="md:col-span-2"
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+          />
+          <Field label="Nazwa arkusza (karta)" value={arkuszNazwa} onChange={setArkuszNazwa} />
+          <Field
+            label="Kolumna z nazwiskami"
+            value={kolumnaNazwisk}
+            onChange={(v) => setKolumnaNazwisk(v.toUpperCase())}
+            pattern="[A-Za-z]{1,3}"
+          />
+          <Field
+            label="Pierwszy wiersz z nazwiskiem"
+            type="number"
+            value={String(pierwszyWiersz)}
+            onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
+          />
+          <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
+          <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
+
+          <div className="md:col-span-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="button" className="btn btn-outline" onClick={() => setPickerOpen(true)}>
+                Ustaw miejsce
+              </button>
+              {lat && lng ? (
+                <span className="text-sm text-gray-700">
+                  Wybrano: <b>{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</b>
+                </span>
+              ) : (
+                <span className="text-sm text-gray-500">Brak miejsca</span>
+              )}
+              {(lat || lng) && (
+                <button type="button" className="btn btn-ghost" onClick={() => { setLat(""); setLng(""); }}>
+                  Wyczyść
+                </button>
+              )}
+            </div>
+            <MapPicker
+              open={pickerOpen}
+              initialLat={lat ? Number(lat) : null}
+              initialLng={lng ? Number(lng) : null}
+              onClose={() => setPickerOpen(false)}
+              onPick={(la, lo) => { setLat(String(la)); setLng(String(lo)); setPickerOpen(false); }}
+              title="Ustaw miejsce turnieju"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
+            {ok && <div className="text-green-700 text-sm mb-2">{ok}</div>}
+            <button disabled={!canSave || loading} className="btn btn-primary">
+              {loading ? "Zapisywanie..." : "Zapisz turniej"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ===================== Modal: Lista grających (z dodawaniem) ===================== */
 function PlayersListModal({
   open,
   onClose,
@@ -117,7 +273,6 @@ function PlayersListModal({
       setLoading(false);
       return;
     }
-
     const foundSet = new Set((found || []).map((g: any) => g.fullname_norm));
     setRows(names.map((name) => ({ name, exists: foundSet.has(norm(name)) })));
     setLoading(false);
@@ -141,8 +296,6 @@ function PlayersListModal({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Błąd dodawania gracza");
-
-      // Oznacz wiersz jako "exists: true" bez pełnego reloadu
       setRows((r) => r.map((row, idx) => (idx === i ? { ...row, exists: true } : row)));
       setOk(`Dodano: ${fullname}`);
     } catch (e: any) {
@@ -168,7 +321,6 @@ function PlayersListModal({
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Błąd dodawania brakujących");
 
-      // Ustaw wszystkie brakujące na exists=true
       setRows((r) => r.map((row) => (row.exists ? row : { ...row, exists: true })));
       setOk(`Dodano ${missing.length} brakujących graczy.`);
     } catch (e: any) {
@@ -201,26 +353,15 @@ function PlayersListModal({
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
               Odśwież
             </button>
-            <button
-              onClick={onClose}
-              className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-            >
+            <button onClick={onClose} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50">
               <X className="w-4 h-4" /> Zamknij
             </button>
           </div>
         </div>
 
         <div className="p-4">
-          {err && (
-            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">
-              {err}
-            </div>
-          )}
-          {ok && (
-            <div className="mb-3 rounded-lg border border-green-200 bg-green-50 text-green-700 px-3 py-2 text-sm">
-              {ok}
-            </div>
-          )}
+          {err && <div className="mb-3 rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+          {ok && <div className="mb-3 rounded-lg border border-green-200 bg-green-50 text-green-700 px-3 py-2 text-sm">{ok}</div>}
 
           {loading ? (
             <div className="flex items-center gap-2 text-gray-600">
@@ -233,8 +374,7 @@ function PlayersListModal({
             <>
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm text-gray-700">
-                  W bazie: <b>{yes}</b> / {total} &nbsp;•&nbsp; Brak w bazie:{" "}
-                  <b className="text-red-700">{no}</b>
+                  W bazie: <b>{yes}</b> / {total} • Brak w bazie: <b className="text-red-700">{no}</b>
                 </div>
                 <button
                   onClick={addAllMissing}
@@ -258,7 +398,7 @@ function PlayersListModal({
                   </thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={`${r.name}-${i}`} className="border-t">
+                      <tr key={i} className="border-t">
                         <td className="px-3 py-2 text-gray-500">{i + 1}</td>
                         <td className="px-3 py-2">{r.name}</td>
                         <td className="px-3 py-2">
@@ -280,11 +420,7 @@ function PlayersListModal({
                               className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50 disabled:opacity-60"
                               title="Dodaj tego gracza"
                             >
-                              {addingIdx === i ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Plus className="w-4 h-4" />
-                              )}
+                              {addingIdx === i ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
                               Dodaj
                             </button>
                           )}
@@ -302,43 +438,29 @@ function PlayersListModal({
   );
 }
 
-/* ===== Główny komponent: panel turniejów ===== */
+/* ===================== Główny panel ===================== */
 export default function AdminTournamentPanel() {
-  // Formularz dodawania
-  const [nazwa, setNazwa] = useState("");
-  const [gsheetUrl, setGsheetUrl] = useState("");
-  const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
-  const [kolumnaNazwisk, setKolumnaNazwisk] = useState("B");
-  const [pierwszyWiersz, setPierwszyWiersz] = useState(2);
-  const [dataTurnieju, setDataTurnieju] = useState<string>("");
-  const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
-
-  // mapa dla nowego turnieju
-  const [lat, setLat] = useState<string>("");
-  const [lng, setLng] = useState<string>("");
-  const [pickerNewOpen, setPickerNewOpen] = useState(false);
-
-  // lista/edycja
   const [list, setList] = useState<TurniejRow[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<EditState>({});
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
 
-  // modal z listą grających
   const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
-  // komunikaty
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
+  const [recomputeBusy, setRecomputeBusy] = useState(false);
 
-  // --- NOWE: loadList z 1x retry + odświeżanie po powrocie do karty
   async function loadList(retry = 0) {
+    setLoadingList(true);
     const { data, error } = await supabaseBrowser
       .from("turniej")
       .select("*")
       .order("created_at", { ascending: false });
+    setLoadingList(false);
 
     if (error) {
       if (retry < 1) {
@@ -348,67 +470,13 @@ export default function AdminTournamentPanel() {
       }
       return;
     }
-
     if (Array.isArray(data) && data.length === 0 && retry < 1) {
       setTimeout(() => loadList(retry + 1), 400);
       return;
     }
-
     setList((data || []) as TurniejRow[]);
   }
-
-  useEffect(() => {
-    loadList();
-  }, []);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") loadList();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
-
-  async function addTurniej(e: React.FormEvent) {
-    e.preventDefault();
-    setErr(null);
-    setOk(null);
-    setLoading(true);
-
-    const body: any = {
-      nazwa,
-      gsheet_url: gsheetUrl,
-      gsheet_id: extractIdFromUrl(gsheetUrl),
-      arkusz_nazwa: arkuszNazwa,
-      kolumna_nazwisk: kolumnaNazwisk.toUpperCase(),
-      pierwszy_wiersz_z_nazwiskiem: Number(pierwszyWiersz || 2),
-      data_turnieju: dataTurnieju || null,
-      godzina_turnieju: godzinaTurnieju || null,
-    };
-
-    if (lat !== "") body.lat = Number(lat);
-    if (lng !== "") body.lng = Number(lng);
-
-    const res = await fetch("/api/turnieje", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const j = await res.json().catch(() => ({}));
-    setLoading(false);
-
-    if (!res.ok) {
-      setErr(j.error || "Błąd zapisu");
-      return;
-    }
-
-    setOk("Dodano turniej.");
-    setNazwa(""); setGsheetUrl(""); setArkuszNazwa("Gracze");
-    setKolumnaNazwisk("B"); setPierwszyWiersz(2);
-    setDataTurnieju(""); setGodzinaTurnieju("");
-    setLat(""); setLng("");
-    await loadList();
-  }
+  useEffect(() => { loadList(); }, []);
 
   function toggleExpand(t: TurniejRow) {
     setErr(null);
@@ -418,10 +486,10 @@ export default function AdminTournamentPanel() {
     setEditRow({
       id: t.id,
       nazwa: t.nazwa,
-      gsheet_url: t.gsheet_url,
+      gsheet_url: t.gsheet_url || "",
       gsheet_id: t.gsheet_id,
-      arkusz_nazwa: t.arkusz_nazwa,
-      kolumna_nazwisk: t.kolumna_nazwisk,
+      arkusz_nazwa: t.arkusz_nazwa || "",
+      kolumna_nazwisk: (t.kolumna_nazwisk || "").toUpperCase(),
       pierwszy_wiersz_z_nazwiskiem: String(t.pierwszy_wiersz_z_nazwiskiem ?? 2),
       data_turnieju: t.data_turnieju,
       godzina_turnieju: toTimeInput(t.godzina_turnieju),
@@ -429,7 +497,6 @@ export default function AdminTournamentPanel() {
       lng: t.lng == null ? "" : String(t.lng),
     });
   }
-
   function onChange<K extends keyof EditState>(key: K, val: string) {
     setEditRow((row) => ({ ...row, [key]: val }));
   }
@@ -437,7 +504,6 @@ export default function AdminTournamentPanel() {
   async function saveEdit(id: string) {
     setErr(null);
     setOk(null);
-
     const body: any = {};
     if ("nazwa" in editRow) body.nazwa = (editRow.nazwa || "").trim();
     if ("gsheet_url" in editRow) body.gsheet_url = (editRow.gsheet_url || "").trim();
@@ -445,14 +511,9 @@ export default function AdminTournamentPanel() {
     if (!body.gsheet_id && body.gsheet_url) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
     if ("arkusz_nazwa" in editRow) body.arkusz_nazwa = (editRow.arkusz_nazwa || "").trim();
     if ("kolumna_nazwisk" in editRow) body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
-    if ("pierwszy_wiersz_z_nazwiskiem" in editRow)
-      body.pierwszy_wiersz_z_nazwiskiem = Number(editRow.pierwszy_wiersz_z_nazwiskiem || 2);
-
-    if ("data_turnieju" in editRow)
-      body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
-    if ("godzina_turnieju" in editRow)
-      body.godzina_turnieju = editRow.godzina_turnieju === "" ? null : editRow.godzina_turnieju;
-
+    if ("pierwszy_wiersz_z_nazwiskiem" in editRow) body.pierwszy_wiersz_z_nazwiskiem = Number(editRow.pierwszy_wiersz_z_nazwiskiem || 2);
+    if ("data_turnieju" in editRow) body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
+    if ("godzina_turnieju" in editRow) body.godzina_turnieju = editRow.godzina_turnieju === "" ? null : editRow.godzina_turnieju;
     if ("lat" in editRow) body.lat = editRow.lat === "" ? "" : editRow.lat;
     if ("lng" in editRow) body.lng = editRow.lng === "" ? "" : editRow.lng;
 
@@ -462,10 +523,7 @@ export default function AdminTournamentPanel() {
       body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setErr(j.error || "Błąd aktualizacji");
-      return;
-    }
+    if (!res.ok) { setErr(j.error || "Błąd aktualizacji"); return; }
     setOk("Zapisano zmiany.");
     await loadList();
   }
@@ -482,82 +540,49 @@ export default function AdminTournamentPanel() {
     await loadList();
   }
 
-  const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
+  async function recomputeElo() {
+    setErr(null); setOk(null); setRecomputeBusy(true);
+    try {
+      const { error } = await supabaseBrowser.rpc("elo_recompute_all");
+      if (error) throw error;
+      setOk("Przeliczono ranking ELO ✅");
+    } catch (e: any) {
+      setErr(e?.message || "Błąd przeliczania ELO");
+    } finally {
+      setRecomputeBusy(false);
+    }
+  }
 
   return (
     <div className="grid gap-6">
-      {/* Dodawanie */}
-      <div className="card">
-        <h3 className="font-semibold mb-4">Dodaj turniej</h3>
+      {/* Pasek akcji */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          className="btn btn-primary inline-flex items-center gap-2"
+          onClick={() => setAddModalOpen(true)}
+        >
+          <PlusCircle className="w-4 h-4" />
+          Dodaj turniej
+        </button>
 
-        <form onSubmit={addTurniej} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
-          <Field
-            label="Link do Google Sheets"
-            value={gsheetUrl}
-            onChange={setGsheetUrl}
-            className="md:col-span-2"
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-          />
-          <Field label="Nazwa arkusza (karta)" value={arkuszNazwa} onChange={setArkuszNazwa} />
-          <Field
-            label="Kolumna z nazwiskami"
-            value={kolumnaNazwisk}
-            onChange={(v) => setKolumnaNazwisk(v.toUpperCase())}
-            pattern="[A-Za-z]{1,3}"
-          />
-          <Field
-            label="Pierwszy wiersz z nazwiskiem"
-            type="number"
-            value={String(pierwszyWiersz)}
-            onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
-          />
-          <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
-          <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
+        <button
+          type="button"
+          className="btn btn-outline inline-flex items-center gap-2"
+          onClick={recomputeElo}
+          disabled={recomputeBusy}
+          title="Przelicz cały ranking wg aktualnych ustawień"
+        >
+          {recomputeBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+          Przelicz ranking ELO
+        </button>
 
-          {/* Miejsce */}
-          <div className="md:col-span-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="btn btn-outline" onClick={() => setPickerNewOpen(true)}>
-                Ustaw miejsce
-              </button>
-
-              {lat && lng ? (
-                <span className="text-sm text-gray-700">
-                  Wybrano: <b>{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</b>
-                </span>
-              ) : (
-                <span className="text-sm text-gray-500">Brak miejsca</span>
-              )}
-
-              {(lat || lng) && (
-                <button type="button" className="btn btn-ghost" onClick={() => { setLat(""); setLng(""); }}>
-                  Wyczyść
-                </button>
-              )}
-            </div>
-
-            <MapPicker
-              open={pickerNewOpen}
-              initialLat={lat ? Number(lat) : null}
-              initialLng={lng ? Number(lng) : null}
-              onClose={() => setPickerNewOpen(false)}
-              onPick={(la, lo) => { setLat(String(la)); setLng(String(lo)); setPickerNewOpen(false); }}
-              title="Ustaw miejsce turnieju"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
-            {ok && <div className="text-green-700 text-sm mb-2">{ok}</div>}
-            <button disabled={!canSaveNew || loading} className="btn btn-primary">
-              {loading ? "Zapisywanie..." : "Zapisz turniej"}
-            </button>
-          </div>
-        </form>
+        <span className="ml-auto text-sm text-gray-500">
+          {loadingList ? "Ładowanie turniejów…" : `Turniejów: ${list.length}`}
+        </span>
       </div>
 
-      {/* Lista */}
+      {/* Lista turniejów */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Twoje turnieje</h3>
@@ -725,7 +750,16 @@ export default function AdminTournamentPanel() {
         </div>
       </div>
 
-      {/* Modal „Lista grających” */}
+      {/* Modal: dodaj turniej */}
+      {addModalOpen && (
+        <AddTournamentModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          onSaved={() => loadList()}
+        />
+      )}
+
+      {/* Modal: lista grających */}
       {playersModalFor && (
         <PlayersListModal
           open={!!playersModalFor}
@@ -737,7 +771,7 @@ export default function AdminTournamentPanel() {
   );
 }
 
-/* ===== Pomocnicze ===== */
+/* ===================== Pomocnicze UI ===================== */
 function Field({
   label,
   value,
