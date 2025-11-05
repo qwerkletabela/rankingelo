@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 
-/* =============== Shell (nagłówek + przycisk nowego turnieju) =============== */
+/* =============== Shell (nagłówek + przycisk nowego turnieju)  =============== */
 
 type Role = "admin" | "user";
 
