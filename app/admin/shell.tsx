@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import {
   ChevronDown,
@@ -14,6 +14,8 @@ import {
   XCircle,
   Loader2,
   Plus,
+  Swords,
+  RefreshCw,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import { normDb } from "@/lib/norm";
@@ -46,6 +48,14 @@ type EditState = {
   godzina_turnieju?: string | null;
   lat?: string | null;
   lng?: string | null;
+};
+
+type Gracz = {
+  id: string;
+  imie: string;
+  nazwisko: string;
+  ranking: number;
+  fullname_norm: string;
 };
 
 /* ===== Utils ===== */
@@ -102,7 +112,6 @@ function PlayersListModal({
       return;
     }
 
-    // zapytaj DB po fullname_norm (normalizowane identycznie jak w Postgres)
     const norms = Array.from(new Set(names.map(normDb)));
     const { data: found, error } = await supabaseBrowser
       .from("gracz")
@@ -134,11 +143,10 @@ function PlayersListModal({
       const res = await fetch("/api/gracze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullname }), // backend zrobi unaccent + split
+        body: JSON.stringify({ fullname }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Błąd dodawania gracza");
-      // zaznacz jako istniejący bez przeładowania
       setRows((r) => r.map((row, idx) => (idx === i ? { ...row, exists: true } : row)));
       setOk(`Dodano: ${fullname}`);
     } catch (e: any) {
@@ -298,9 +306,322 @@ function PlayersListModal({
 }
 
 /* ============================================================
-   Główny panel admina (turnieje + „Lista grających”)
+   Modal: Dodaj partię (prosty / szczegółowy)
    ============================================================ */
+function AddPartiaModal({
+  open,
+  onClose,
+  tournament,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  tournament: TurniejRow;
+  onSaved: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [mode, setMode] = useState<"simple" | "detailed">("simple");
+  const [playedAt, setPlayedAt] = useState<string>(() => {
+    const d = new Date();
+    // yyyy-MM-ddTHH:mm (bez sekund)
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const s = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return s;
+  });
 
+  // kandydaci (z arkusza -> przefiltrowani do realnych graczy z DB)
+  const [options, setOptions] = useState<Gracz[]>([]);
+  const [winnerId, setWinnerId] = useState<string>("");
+  const [losersIds, setLosersIds] = useState<string[]>([]);
+  const [losersSmall, setLosersSmall] = useState<Record<string, string>>({}); // string, walidujemy na końcu
+
+  async function loadCandidates() {
+    setLoading(true);
+    setErr(null);
+    setOk(null);
+
+    // 1) imiona i nazwiska z arkusza
+    const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      setErr(j.error || "Nie udało się pobrać listy z arkusza");
+      setLoading(false);
+      return;
+    }
+    const names: string[] = (j.names || [])
+      .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 800);
+
+    if (!names.length) {
+      setOptions([]);
+      setLoading(false);
+      return;
+    }
+
+    // 2) dopasuj do bazy po fullname_norm
+    const norms = Array.from(new Set(names.map(normDb)));
+    const { data: found, error } = await supabaseBrowser
+      .from("gracz")
+      .select("id,imie,nazwisko,ranking,fullname_norm")
+      .in("fullname_norm", norms);
+
+    if (error) {
+      setErr(error.message);
+      setLoading(false);
+      return;
+    }
+
+    // tylko istniejący w DB (brakujących najpierw dodaj w „Liście grających”)
+    const arr = (found || []) as Gracz[];
+    arr.sort((a, b) => (a.nazwisko + a.imie).localeCompare(b.nazwisko + b.imie, "pl"));
+    setOptions(arr);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (open) loadCandidates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, tournament.id]);
+
+  const losersAvailable = useMemo(
+    () => options.filter((p) => p.id !== winnerId),
+    [options, winnerId]
+  );
+
+  function toggleLoser(id: string) {
+    setLosersIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  async function save() {
+    setErr(null);
+    setOk(null);
+
+    if (!winnerId) {
+      setErr("Wybierz zwycięzcę.");
+      return;
+    }
+    if (losersIds.length < 1) {
+      setErr("Wybierz co najmniej jednego przegranego.");
+      return;
+    }
+    if (losersIds.length > 3) {
+      setErr("Maksymalnie 3 przegranych (łącznie stół do 4 osób).");
+      return;
+    }
+
+    // walidacja szczegółowa
+    let losersPayload: { id: string; mp: number }[] = [];
+    if (mode === "detailed") {
+      for (const id of losersIds) {
+        const raw = losersSmall[id];
+        if (raw == null || raw === "") {
+          setErr("Uzupełnij małe punkty dla wszystkich przegranych.");
+          return;
+        }
+        const num = Number(raw);
+        if (!Number.isFinite(num) || num >= 0) {
+          setErr("Małe punkty przegranych muszą być ujemne (np. -35).");
+          return;
+        }
+        losersPayload.push({ id, mp: num });
+      }
+    } else {
+      losersPayload = losersIds.map((id) => ({ id, mp: -1 })); // placeholder
+    }
+
+    setLoading(true);
+    try {
+      // 1) utwórz stolik
+      const { data: stolikIns, error: stErr } = await supabaseBrowser
+        .from("stolik")
+        .insert({ turniej_id: tournament.id })
+        .select("id")
+        .maybeSingle();
+      if (stErr || !stolikIns?.id) throw new Error(stErr?.message || "Błąd tworzenia stołu");
+
+      // 2) partia
+      const playedIso = playedAt ? new Date(playedAt).toISOString() : new Date().toISOString();
+      const { data: partiaIns, error: pErr } = await supabaseBrowser
+        .from("partia")
+        .insert({
+          stolik_id: stolikIns.id,
+          nr: 1,
+          played_at: playedIso,
+          zwyciezca_gracz_id: winnerId,
+        })
+        .select("id")
+        .maybeSingle();
+      if (pErr || !partiaIns?.id) throw new Error(pErr?.message || "Błąd tworzenia partii");
+
+      // 3) małe punkty (dla przegranych)
+      const rows = losersPayload.map((l) => ({
+        partia_id: partiaIns.id,
+        gracz_id: l.id,
+        punkty: l.mp,
+      }));
+      const { error: pmErr } = await supabaseBrowser.from("partia_male").insert(rows);
+      if (pmErr) throw new Error(pmErr.message);
+
+      // 4) przelicz ranking
+      const { error: rpcErr } = await supabaseBrowser.rpc("elo_recompute_all");
+      if (rpcErr) throw new Error("Zapisano partię, ale przeliczenie ELO nie powiodło się: " + rpcErr.message);
+
+      setOk("Partia dodana i ranking przeliczony ✅");
+      onSaved();
+    } catch (e: any) {
+      setErr(e.message || "Błąd zapisu");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl ring-1 ring-black/10 overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <div className="font-semibold inline-flex items-center gap-2">
+            <Swords className="w-4 h-4" />
+            Dodaj partię — {tournament.nazwa}
+          </div>
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+          >
+            <X className="w-4 h-4" /> Zamknij
+          </button>
+        </div>
+
+        <div className="p-4 grid gap-4">
+          {err && <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+          {ok && <div className="rounded-lg border border-green-200 bg-green-50 text-green-700 px-3 py-2 text-sm">{ok}</div>}
+
+          {/* Data/czas */}
+          <label className="text-sm grid gap-1">
+            <span className="text-gray-600">Data i czas partii</span>
+            <input
+              type="datetime-local"
+              value={playedAt}
+              onChange={(e) => setPlayedAt(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2"
+            />
+          </label>
+
+          {/* Tryb */}
+          <div className="flex items-center gap-4">
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="simple"
+                checked={mode === "simple"}
+                onChange={() => setMode("simple")}
+              />
+              <span className="text-sm">Mniej szczegółowo (bez małych punktów)</span>
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="detailed"
+                checked={mode === "detailed"}
+                onChange={() => setMode("detailed")}
+              />
+              <span className="text-sm">Więcej szczegółów (małe punkty przegranych)</span>
+            </label>
+          </div>
+
+          {/* Wybór zwycięzcy */}
+          <label className="text-sm grid gap-1">
+            <span className="text-gray-600">Zwycięzca</span>
+            <select
+              value={winnerId}
+              onChange={(e) => {
+                setWinnerId(e.target.value);
+                // usuń z przegranych, jeśli był zaznaczony
+                setLosersIds((arr) => arr.filter((id) => id !== e.target.value));
+              }}
+              className="rounded-lg border border-gray-300 px-3 py-2"
+            >
+              <option value="">— wybierz —</option>
+              {options.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.imie} {p.nazwisko} (ELO {Math.round(p.ranking)})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Wybór przegranych */}
+          <div>
+            <div className="text-sm text-gray-600 mb-1">Przegrani (zaznacz 1–3)</div>
+            <div className="rounded-lg border divide-y">
+              {losersAvailable.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-gray-500">Najpierw wybierz zwycięzcę.</div>
+              ) : (
+                losersAvailable.map((p) => {
+                  const checked = losersIds.includes(p.id);
+                  return (
+                    <label key={p.id} className="flex items-center gap-3 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleLoser(p.id)}
+                      />
+                      <span className="flex-1">
+                        {p.imie} {p.nazwisko} <span className="text-xs text-gray-500">ELO {Math.round(p.ranking)}</span>
+                      </span>
+
+                      {mode === "detailed" && checked && (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-xs text-gray-500">małe:</span>
+                          <input
+                            type="number"
+                            step="1"
+                            placeholder="-35"
+                            className="w-24 rounded-md border px-2 py-1 text-sm"
+                            value={losersSmall[p.id] ?? ""}
+                            onChange={(e) =>
+                              setLosersSmall((m) => ({ ...m, [p.id]: e.target.value }))
+                            }
+                          />
+                        </span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={loading}
+              className="btn btn-primary inline-flex items-center gap-2"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Swords className="w-4 h-4" />}
+              Zapisz partię i przelicz ELO
+            </button>
+            <button onClick={onClose} className="btn btn-ghost">
+              Anuluj
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   Główny panel admina (turnieje + modale)
+   ============================================================ */
 export default function AdminShell({ email, role }: { email: string; role: string }) {
   // Formularz dodawania
   const [nazwa, setNazwa] = useState("");
@@ -323,16 +644,19 @@ export default function AdminShell({ email, role }: { email: string; role: strin
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const [pickerEditOpenId, setPickerEditOpenId] = useState<string | null>(null);
 
-  // modal z listą grających
+  // modale
   const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
+  const [addPartiaFor, setAddPartiaFor] = useState<TurniejRow | null>(null);
 
   // komunikaty
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isLoadingList, setIsLoadingList] = useState(true);
 
-  // ładowanie listy z „miękkim retry” (gdy Supabase budzi się)
+  // ładowanie listy z miękkim retry
   async function loadList(retry = 0) {
+    setIsLoadingList(true);
     const { data, error } = await supabaseBrowser
       .from("turniej")
       .select("*")
@@ -343,6 +667,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
         setTimeout(() => loadList(retry + 1), 500);
       } else {
         setErr(error.message);
+        setIsLoadingList(false);
       }
       return;
     }
@@ -353,6 +678,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     }
 
     setList((data || []) as TurniejRow[]);
+    setIsLoadingList(false);
   }
   useEffect(() => {
     loadList();
@@ -472,10 +798,30 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     await loadList();
   }
 
+  // ręczny przycisk do pełnego przeliczenia (gdy zmienisz K)
+  async function recomputeAll() {
+    setErr(null);
+    setOk(null);
+    const { error } = await supabaseBrowser.rpc("elo_recompute_all");
+    if (error) setErr("Błąd przeliczania ELO: " + error.message);
+    else setOk("Ranking przeliczony ✅");
+  }
+
   const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
   return (
     <div className="grid gap-6">
+      {/* Pasek szybkich akcji */}
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Szybkie akcje</h3>
+          <button onClick={recomputeAll} className="btn btn-outline inline-flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Przelicz ranking ELO
+          </button>
+        </div>
+      </div>
+
       {/* Dodawanie turnieju */}
       <div className="card">
         <h3 className="font-semibold mb-4">Dodaj turniej</h3>
@@ -551,7 +897,13 @@ export default function AdminShell({ email, role }: { email: string; role: strin
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Twoje turnieje</h3>
-          <span className="text-xs text-gray-500">Kliknij nazwę, aby edytować</span>
+          {!isLoadingList ? (
+            <span className="text-xs text-gray-500">Kliknij nazwę, aby edytować</span>
+          ) : (
+            <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" /> Ładuję...
+            </span>
+          )}
         </div>
 
         <div className="overflow-hidden rounded-xl border border-gray-100">
@@ -603,6 +955,8 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                               {(latPreview ?? t.lat)?.toFixed(4)}, {(lngPreview ?? t.lng)?.toFixed(4)}
                             </span>
                           )}
+
+                          {/* Akcje przy turnieju */}
                           <button
                             type="button"
                             className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
@@ -611,6 +965,15 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                           >
                             <Users className="w-3.5 h-3.5" />
                             Lista grających
+                          </button>
+                          <button
+                            type="button"
+                            className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
+                            onClick={(e) => { e.stopPropagation(); setAddPartiaFor(t); }}
+                            title="Dodaj partię do tego turnieju"
+                          >
+                            <Swords className="w-3.5 h-3.5" />
+                            Dodaj partię
                           </button>
                         </span>
                       </td>
@@ -640,9 +1003,14 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                                     Ustaw miejsce
                                   </button>
 
-                                  {latPreview != null && lngPreview != null ? (
+                                  {(editRow.id === t.id ? (editRow.lat && editRow.lng) : (t.lat != null && t.lng != null)) ? (
                                     <span className="text-sm text-gray-700">
-                                      Wybrano: <b>{latPreview.toFixed(6)}, {lngPreview.toFixed(6)}</b>
+                                      Wybrano:{" "}
+                                      <b>
+                                        {(editRow.id === t.id && editRow.lat) ? Number(editRow.lat).toFixed(6) : (t.lat ?? 0).toFixed(6)}
+                                        ,{" "}
+                                        {(editRow.id === t.id && editRow.lng) ? Number(editRow.lng).toFixed(6) : (t.lng ?? 0).toFixed(6)}
+                                      </b>
                                     </span>
                                   ) : (
                                     <span className="text-sm text-gray-500">Brak miejsca</span>
@@ -654,14 +1022,24 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                                     </button>
                                   )}
 
-                                  <button
-                                    type="button"
-                                    className="ml-auto inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-                                    onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}
-                                  >
-                                    <Users className="w-4 h-4" />
-                                    Lista grających
-                                  </button>
+                                  <div className="ml-auto flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                                      onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}
+                                    >
+                                      <Users className="w-4 h-4" />
+                                      Lista grających
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                                      onClick={(e) => { e.stopPropagation(); setAddPartiaFor(t); }}
+                                    >
+                                      <Swords className="w-4 h-4" />
+                                      Dodaj partię
+                                    </button>
+                                  </div>
                                 </div>
 
                                 <MapPicker
@@ -710,17 +1088,35 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                   </>
                 );
               })}
+              {(!isLoadingList && list.length === 0) && (
+                <tr>
+                  <td colSpan={2} className="px-4 py-6 text-sm text-gray-600">
+                    Brak turniejów. Dodaj pierwszy w sekcji powyżej.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal „Lista grających” */}
+      {/* Modale */}
       {playersModalFor && (
         <PlayersListModal
           open={!!playersModalFor}
           onClose={() => setPlayersModalFor(null)}
           tournament={playersModalFor}
+        />
+      )}
+
+      {addPartiaFor && (
+        <AddPartiaModal
+          open={!!addPartiaFor}
+          onClose={() => setAddPartiaFor(null)}
+          tournament={addPartiaFor}
+          onSaved={() => {
+            // po zapisie możesz np. zamknąć modal i odświeżyć coś jeszcze
+          }}
         />
       )}
     </div>
