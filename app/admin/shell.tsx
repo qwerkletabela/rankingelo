@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import {
   ChevronDown,
@@ -20,7 +20,7 @@ import {
 import MapPicker from "@/components/MapPicker";
 import { normDb } from "@/lib/norm";
 
-/* ===== Typy ===== */
+/* ========== Typy ========== */
 type TurniejRow = {
   id: string;
   nazwa: string;
@@ -58,7 +58,42 @@ type Gracz = {
   fullname_norm: string;
 };
 
-/* ===== Utils ===== */
+type WynikWide = {
+  turniej_id: string;
+  turniej: string;
+  stolik_id: string;
+  partia_id: string;
+  partia_nr: number;
+  timestamp: string;      // view kolumna "timestamp"
+  numer_dodania: number;
+  zwyciezca_id: string | null;
+  // gracze i parametry A..D (mogą być null jeśli mniej niż 4 osób)
+  gracz_a: string | null;
+  elo_a_przed: number | null;
+  delta_a: number | null;
+  elo_a_po: number | null;
+  male_a: number | null;
+
+  gracz_b: string | null;
+  elo_b_przed: number | null;
+  delta_b: number | null;
+  elo_b_po: number | null;
+  male_b: number | null;
+
+  gracz_c: string | null;
+  elo_c_przed: number | null;
+  delta_c: number | null;
+  elo_c_po: number | null;
+  male_c: number | null;
+
+  gracz_d: string | null;
+  elo_d_przed: number | null;
+  delta_d: number | null;
+  elo_d_po: number | null;
+  male_d: number | null;
+};
+
+/* ========== Utils ========== */
 function extractIdFromUrl(url: string): string | null {
   const m = url?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
@@ -67,6 +102,7 @@ function toTimeInput(v?: string | null) {
   if (!v) return "";
   return v.slice(0, 5);
 }
+const pad = (n: number) => String(n).padStart(2, "0");
 
 /* ============================================================
    Modal: Lista grających (z dodawaniem brakujących do DB)
@@ -171,7 +207,6 @@ function PlayersListModal({
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Błąd dodawania brakujących");
-
       setRows((r) => r.map((row) => (row.exists ? row : { ...row, exists: true })));
       setOk(`Dodano ${missing.length} brakujących graczy.`);
     } catch (e: any) {
@@ -325,24 +360,21 @@ function AddPartiaModal({
   const [mode, setMode] = useState<"simple" | "detailed">("simple");
   const [playedAt, setPlayedAt] = useState<string>(() => {
     const d = new Date();
-    // yyyy-MM-ddTHH:mm (bez sekund)
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const s = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    return s;
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
+      d.getMinutes()
+    )}`;
   });
 
-  // kandydaci (z arkusza -> przefiltrowani do realnych graczy z DB)
   const [options, setOptions] = useState<Gracz[]>([]);
   const [winnerId, setWinnerId] = useState<string>("");
   const [losersIds, setLosersIds] = useState<string[]>([]);
-  const [losersSmall, setLosersSmall] = useState<Record<string, string>>({}); // string, walidujemy na końcu
+  const [losersSmall, setLosersSmall] = useState<Record<string, string>>({});
 
   async function loadCandidates() {
     setLoading(true);
     setErr(null);
     setOk(null);
 
-    // 1) imiona i nazwiska z arkusza
     const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
     const j = await resp.json().catch(() => ({}));
     if (!resp.ok) {
@@ -361,7 +393,6 @@ function AddPartiaModal({
       return;
     }
 
-    // 2) dopasuj do bazy po fullname_norm
     const norms = Array.from(new Set(names.map(normDb)));
     const { data: found, error } = await supabaseBrowser
       .from("gracz")
@@ -374,7 +405,6 @@ function AddPartiaModal({
       return;
     }
 
-    // tylko istniejący w DB (brakujących najpierw dodaj w „Liście grających”)
     const arr = (found || []) as Gracz[];
     arr.sort((a, b) => (a.nazwisko + a.imie).localeCompare(b.nazwisko + b.imie, "pl"));
     setOptions(arr);
@@ -386,57 +416,36 @@ function AddPartiaModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tournament.id]);
 
-  const losersAvailable = useMemo(
-    () => options.filter((p) => p.id !== winnerId),
-    [options, winnerId]
-  );
+  const losersAvailable = useMemo(() => options.filter((p) => p.id !== winnerId), [options, winnerId]);
 
   function toggleLoser(id: string) {
-    setLosersIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+    setLosersIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   async function save() {
     setErr(null);
     setOk(null);
 
-    if (!winnerId) {
-      setErr("Wybierz zwycięzcę.");
-      return;
-    }
-    if (losersIds.length < 1) {
-      setErr("Wybierz co najmniej jednego przegranego.");
-      return;
-    }
-    if (losersIds.length > 3) {
-      setErr("Maksymalnie 3 przegranych (łącznie stół do 4 osób).");
-      return;
-    }
+    if (!winnerId) return setErr("Wybierz zwycięzcę.");
+    if (losersIds.length < 1) return setErr("Wybierz co najmniej jednego przegranego.");
+    if (losersIds.length > 3) return setErr("Maksymalnie 3 przegranych (stół do 4 osób).");
 
-    // walidacja szczegółowa
     let losersPayload: { id: string; mp: number }[] = [];
     if (mode === "detailed") {
       for (const id of losersIds) {
         const raw = losersSmall[id];
-        if (raw == null || raw === "") {
-          setErr("Uzupełnij małe punkty dla wszystkich przegranych.");
-          return;
-        }
+        if (raw == null || raw === "") return setErr("Uzupełnij małe punkty dla wszystkich przegranych.");
         const num = Number(raw);
-        if (!Number.isFinite(num) || num >= 0) {
-          setErr("Małe punkty przegranych muszą być ujemne (np. -35).");
-          return;
-        }
+        if (!Number.isFinite(num) || num >= 0) return setErr("Małe punkty muszą być ujemne (np. -35).");
         losersPayload.push({ id, mp: num });
       }
     } else {
-      losersPayload = losersIds.map((id) => ({ id, mp: -1 })); // placeholder
+      losersPayload = losersIds.map((id) => ({ id, mp: -1 }));
     }
 
     setLoading(true);
     try {
-      // 1) utwórz stolik
+      // stolik
       const { data: stolikIns, error: stErr } = await supabaseBrowser
         .from("stolik")
         .insert({ turniej_id: tournament.id })
@@ -444,7 +453,7 @@ function AddPartiaModal({
         .maybeSingle();
       if (stErr || !stolikIns?.id) throw new Error(stErr?.message || "Błąd tworzenia stołu");
 
-      // 2) partia
+      // partia
       const playedIso = playedAt ? new Date(playedAt).toISOString() : new Date().toISOString();
       const { data: partiaIns, error: pErr } = await supabaseBrowser
         .from("partia")
@@ -458,16 +467,12 @@ function AddPartiaModal({
         .maybeSingle();
       if (pErr || !partiaIns?.id) throw new Error(pErr?.message || "Błąd tworzenia partii");
 
-      // 3) małe punkty (dla przegranych)
-      const rows = losersPayload.map((l) => ({
-        partia_id: partiaIns.id,
-        gracz_id: l.id,
-        punkty: l.mp,
-      }));
+      // małe punkty
+      const rows = losersPayload.map((l) => ({ partia_id: partiaIns.id, gracz_id: l.id, punkty: l.mp }));
       const { error: pmErr } = await supabaseBrowser.from("partia_male").insert(rows);
       if (pmErr) throw new Error(pmErr.message);
 
-      // 4) przelicz ranking
+      // przelicz ELO
       const { error: rpcErr } = await supabaseBrowser.rpc("elo_recompute_all");
       if (rpcErr) throw new Error("Zapisano partię, ale przeliczenie ELO nie powiodło się: " + rpcErr.message);
 
@@ -516,35 +521,22 @@ function AddPartiaModal({
           {/* Tryb */}
           <div className="flex items-center gap-4">
             <label className="inline-flex items-center gap-2">
-              <input
-                type="radio"
-                name="mode"
-                value="simple"
-                checked={mode === "simple"}
-                onChange={() => setMode("simple")}
-              />
+              <input type="radio" name="mode" value="simple" checked={mode === "simple"} onChange={() => setMode("simple")} />
               <span className="text-sm">Mniej szczegółowo (bez małych punktów)</span>
             </label>
             <label className="inline-flex items-center gap-2">
-              <input
-                type="radio"
-                name="mode"
-                value="detailed"
-                checked={mode === "detailed"}
-                onChange={() => setMode("detailed")}
-              />
+              <input type="radio" name="mode" value="detailed" checked={mode === "detailed"} onChange={() => setMode("detailed")} />
               <span className="text-sm">Więcej szczegółów (małe punkty przegranych)</span>
             </label>
           </div>
 
-          {/* Wybór zwycięzcy */}
+          {/* Zwycięzca */}
           <label className="text-sm grid gap-1">
             <span className="text-gray-600">Zwycięzca</span>
             <select
               value={winnerId}
               onChange={(e) => {
                 setWinnerId(e.target.value);
-                // usuń z przegranych, jeśli był zaznaczony
                 setLosersIds((arr) => arr.filter((id) => id !== e.target.value));
               }}
               className="rounded-lg border border-gray-300 px-3 py-2"
@@ -558,60 +550,54 @@ function AddPartiaModal({
             </select>
           </label>
 
-          {/* Wybór przegranych */}
+          {/* Przegrani */}
           <div>
             <div className="text-sm text-gray-600 mb-1">Przegrani (zaznacz 1–3)</div>
             <div className="rounded-lg border divide-y">
-              {losersAvailable.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-gray-500">Najpierw wybierz zwycięzcę.</div>
+              {options.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-gray-500">Najpierw dodaj zawodników w „Liście grających”.</div>
               ) : (
-                losersAvailable.map((p) => {
-                  const checked = losersIds.includes(p.id);
-                  return (
-                    <label key={p.id} className="flex items-center gap-3 px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleLoser(p.id)}
-                      />
-                      <span className="flex-1">
-                        {p.imie} {p.nazwisko} <span className="text-xs text-gray-500">ELO {Math.round(p.ranking)}</span>
-                      </span>
-
-                      {mode === "detailed" && checked && (
-                        <span className="inline-flex items-center gap-2">
-                          <span className="text-xs text-gray-500">małe:</span>
-                          <input
-                            type="number"
-                            step="1"
-                            placeholder="-35"
-                            className="w-24 rounded-md border px-2 py-1 text-sm"
-                            value={losersSmall[p.id] ?? ""}
-                            onChange={(e) =>
-                              setLosersSmall((m) => ({ ...m, [p.id]: e.target.value }))
-                            }
-                          />
-                        </span>
-                      )}
-                    </label>
-                  );
-                })
+                useMemo(
+                  () =>
+                    options
+                      .filter((p) => p.id !== winnerId)
+                      .map((p) => {
+                        const checked = losersIds.includes(p.id);
+                        return (
+                          <label key={p.id} className="flex items-center gap-3 px-3 py-2">
+                            <input type="checkbox" checked={checked} onChange={() => toggleLoser(p.id)} />
+                            <span className="flex-1">
+                              {p.imie} {p.nazwisko}{" "}
+                              <span className="text-xs text-gray-500">ELO {Math.round(p.ranking)}</span>
+                            </span>
+                            {mode === "detailed" && checked && (
+                              <span className="inline-flex items-center gap-2">
+                                <span className="text-xs text-gray-500">małe:</span>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  placeholder="-35"
+                                  className="w-24 rounded-md border px-2 py-1 text-sm"
+                                  value={losersSmall[p.id] ?? ""}
+                                  onChange={(e) => setLosersSmall((m) => ({ ...m, [p.id]: e.target.value }))}
+                                />
+                              </span>
+                            )}
+                          </label>
+                        );
+                      }),
+                  [options, winnerId, losersIds, mode, losersSmall]
+                )
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={loading}
-              className="btn btn-primary inline-flex items-center gap-2"
-            >
+            <button onClick={save} disabled={loading} className="btn btn-primary inline-flex items-center gap-2">
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Swords className="w-4 h-4" />}
               Zapisz partię i przelicz ELO
             </button>
-            <button onClick={onClose} className="btn btn-ghost">
-              Anuluj
-            </button>
+            <button onClick={onClose} className="btn btn-ghost">Anuluj</button>
           </div>
         </div>
       </div>
@@ -620,10 +606,39 @@ function AddPartiaModal({
 }
 
 /* ============================================================
-   Główny panel admina (turnieje + modale)
+   Główny panel: zakładki „Turnieje” i „Partie”
    ============================================================ */
 export default function AdminShell({ email, role }: { email: string; role: string }) {
-  // Formularz dodawania
+  const [activeTab, setActiveTab] = useState<"turnieje" | "partie">("turnieje");
+
+  return (
+    <div className="grid gap-6">
+      {/* Zakładki */}
+      <div className="flex items-center gap-2 border-b">
+        <button
+          className={`px-3 py-2 -mb-px border-b-2 ${activeTab === "turnieje" ? "border-brand-600 font-semibold" : "border-transparent text-gray-500"}`}
+          onClick={() => setActiveTab("turnieje")}
+        >
+          Turnieje
+        </button>
+        <button
+          className={`px-3 py-2 -mb-px border-b-2 ${activeTab === "partie" ? "border-brand-600 font-semibold" : "border-transparent text-gray-500"}`}
+          onClick={() => setActiveTab("partie")}
+        >
+          Partie
+        </button>
+      </div>
+
+      {activeTab === "turnieje" ? <TurniejeTab /> : <PartieTab />}
+    </div>
+  );
+}
+
+/* ============================================================
+   Zakładka: Turnieje (dodawanie/edycja + modale)
+   ============================================================ */
+function TurniejeTab() {
+  // Dodawanie turnieju
   const [nazwa, setNazwa] = useState("");
   const [gsheetUrl, setGsheetUrl] = useState("");
   const [arkuszNazwa, setArkuszNazwa] = useState("Gracze");
@@ -632,7 +647,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
   const [dataTurnieju, setDataTurnieju] = useState<string>("");
   const [godzinaTurnieju, setGodzinaTurnieju] = useState<string>("");
 
-  // mapa dla nowego turnieju
+  // geo
   const [lat, setLat] = useState<string>("");
   const [lng, setLng] = useState<string>("");
   const [pickerNewOpen, setPickerNewOpen] = useState(false);
@@ -648,13 +663,12 @@ export default function AdminShell({ email, role }: { email: string; role: strin
   const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
   const [addPartiaFor, setAddPartiaFor] = useState<TurniejRow | null>(null);
 
-  // komunikaty
+  // status
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isLoadingList, setIsLoadingList] = useState(true);
 
-  // ładowanie listy z miękkim retry
   async function loadList(retry = 0) {
     setIsLoadingList(true);
     const { data, error } = await supabaseBrowser
@@ -685,6 +699,14 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function recomputeAll() {
+    setErr(null);
+    setOk(null);
+    const { error } = await supabaseBrowser.rpc("elo_recompute_all");
+    if (error) setErr("Błąd przeliczania ELO: " + error.message);
+    else setOk("Ranking przeliczony ✅");
+  }
+
   async function addTurniej(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -701,7 +723,6 @@ export default function AdminShell({ email, role }: { email: string; role: strin
       data_turnieju: dataTurnieju || null,
       godzina_turnieju: godzinaTurnieju || null,
     };
-
     if (lat !== "") body.lat = Number(lat);
     if (lng !== "") body.lng = Number(lng);
 
@@ -798,111 +819,108 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     await loadList();
   }
 
-  // ręczny przycisk do pełnego przeliczenia (gdy zmienisz K)
-  async function recomputeAll() {
-    setErr(null);
-    setOk(null);
-    const { error } = await supabaseBrowser.rpc("elo_recompute_all");
-    if (error) setErr("Błąd przeliczania ELO: " + error.message);
-    else setOk("Ranking przeliczony ✅");
-  }
-
   const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
   return (
-    <div className="grid gap-6">
+    <>
       {/* Pasek szybkich akcji */}
       <div className="card">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">Szybkie akcje</h3>
-          <button onClick={recomputeAll} className="btn btn-outline inline-flex items-center gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Przelicz ranking ELO
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => loadList(0)} className="btn btn-outline inline-flex items-center gap-2">
+              <Loader2 className="w-4 h-4" /> Odśwież
+            </button>
+            <button onClick={recomputeAll} className="btn btn-outline inline-flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" />
+              Przelicz ELO
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Dodawanie turnieju */}
       <div className="card">
-        <h3 className="font-semibold mb-4">Dodaj turniej</h3>
+        <details open>
+          <summary className="cursor-pointer font-semibold mb-2">Dodaj turniej</summary>
+          <form onSubmit={addTurniej} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
+            <Field
+              label="Link do Google Sheets"
+              value={gsheetUrl}
+              onChange={setGsheetUrl}
+              className="md:col-span-2"
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+            />
+            <Field label="Nazwa arkusza (karta)" value={arkuszNazwa} onChange={setArkuszNazwa} />
+            <Field
+              label="Kolumna z nazwiskami"
+              value={kolumnaNazwisk}
+              onChange={(v) => setKolumnaNazwisk(v.toUpperCase())}
+              pattern="[A-Za-z]{1,3}"
+            />
+            <Field
+              label="Pierwszy wiersz z nazwiskiem"
+              type="number"
+              value={String(pierwszyWiersz)}
+              onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
+            />
+            <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
+            <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
 
-        <form onSubmit={addTurniej} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
-          <Field
-            label="Link do Google Sheets"
-            value={gsheetUrl}
-            onChange={setGsheetUrl}
-            className="md:col-span-2"
-            placeholder="https://docs.google.com/spreadsheets/d/..."
-          />
-          <Field label="Nazwa arkusza (karta)" value={arkuszNazwa} onChange={setArkuszNazwa} />
-          <Field
-            label="Kolumna z nazwiskami"
-            value={kolumnaNazwisk}
-            onChange={(v) => setKolumnaNazwisk(v.toUpperCase())}
-            pattern="[A-Za-z]{1,3}"
-          />
-          <Field
-            label="Pierwszy wiersz z nazwiskiem"
-            type="number"
-            value={String(pierwszyWiersz)}
-            onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
-          />
-          <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
-          <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
-
-          {/* Miejsce */}
-          <div className="md:col-span-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <button type="button" className="btn btn-outline" onClick={() => setPickerNewOpen(true)}>
-                Ustaw miejsce
-              </button>
-
-              {lat && lng ? (
-                <span className="text-sm text-gray-700">
-                  Wybrano: <b>{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</b>
-                </span>
-              ) : (
-                <span className="text-sm text-gray-500">Brak miejsca</span>
-              )}
-
-              {(lat || lng) && (
-                <button type="button" className="btn btn-ghost" onClick={() => { setLat(""); setLng(""); }}>
-                  Wyczyść
+            {/* Miejsce */}
+            <div className="md:col-span-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <button type="button" className="btn btn-outline" onClick={() => setPickerNewOpen(true)}>
+                  Ustaw miejsce
                 </button>
-              )}
+
+                {lat && lng ? (
+                  <span className="text-sm text-gray-700">
+                    Wybrano: <b>{Number(lat).toFixed(6)}, {Number(lng).toFixed(6)}</b>
+                  </span>
+                ) : (
+                  <span className="text-sm text-gray-500">Brak miejsca</span>
+                )}
+
+                {(lat || lng) && (
+                  <button type="button" className="btn btn-ghost" onClick={() => { setLat(""); setLng(""); }}>
+                    Wyczyść
+                  </button>
+                )}
+              </div>
+
+              <MapPicker
+                open={pickerNewOpen}
+                initialLat={lat ? Number(lat) : null}
+                initialLng={lng ? Number(lng) : null}
+                onClose={() => setPickerNewOpen(false)}
+                onPick={(la, lo) => { setLat(String(la)); setLng(String(lo)); setPickerNewOpen(false); }}
+                title="Ustaw miejsce turnieju"
+              />
             </div>
 
-            <MapPicker
-              open={pickerNewOpen}
-              initialLat={lat ? Number(lat) : null}
-              initialLng={lng ? Number(lng) : null}
-              onClose={() => setPickerNewOpen(false)}
-              onPick={(la, lo) => { setLat(String(la)); setLng(String(lo)); setPickerNewOpen(false); }}
-              title="Ustaw miejsce turnieju"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
-            {ok && <div className="text-green-700 text-sm mb-2">{ok}</div>}
-            <button disabled={!canSaveNew || loading} className="btn btn-primary">
-              {loading ? "Zapisywanie..." : "Zapisz turniej"}
-            </button>
-          </div>
-        </form>
+            <div className="md:col-span-2">
+              {err && <div className="text-red-600 text-sm mb-2">{err}</div>}
+              {ok && <div className="text-green-700 text-sm mb-2">{ok}</div>}
+              <button disabled={!canSaveNew || loading} className="btn btn-primary">
+                {loading ? "Zapisywanie..." : "Zapisz turniej"}
+              </button>
+            </div>
+          </form>
+        </details>
       </div>
 
       {/* Lista turniejów */}
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold">Twoje turnieje</h3>
-          {!isLoadingList ? (
-            <span className="text-xs text-gray-500">Kliknij nazwę, aby edytować</span>
-          ) : (
+          {isLoadingList ? (
             <span className="text-xs text-gray-500 inline-flex items-center gap-1">
               <Loader2 className="w-3 h-3 animate-spin" /> Ładuję...
             </span>
+          ) : (
+            <span className="text-xs text-gray-500">Kliknij nazwę, aby edytować</span>
           )}
         </div>
 
@@ -929,9 +947,8 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                   : t.lng;
 
                 return (
-                  <>
+                  <Fragment key={t.id}>
                     <tr
-                      key={t.id}
                       className="border-t border-gray-100 hover:bg-brand-50/60 transition-colors cursor-pointer group"
                       onClick={() => toggleExpand(t)}
                     >
@@ -956,7 +973,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                             </span>
                           )}
 
-                          {/* Akcje przy turnieju */}
+                          {/* Akcje */}
                           <button
                             type="button"
                             className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
@@ -984,18 +1001,18 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                         <td colSpan={2} className="p-0">
                           <div className="px-4 py-4 bg-white">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Field label="Nazwa" value={String(editRow.nazwa ?? "")} onChange={(v) => onChange("nazwa", v)} />
-                              <Field label="Arkusz (nazwa karty)" value={String(editRow.arkusz_nazwa ?? "")} onChange={(v) => onChange("arkusz_nazwa", v)} />
-                              <Field label="Kolumna z nazwiskami" value={String(editRow.kolumna_nazwisk ?? "")} onChange={(v) => onChange("kolumna_nazwisk", v.toUpperCase())} />
-                              <Field label="Pierwszy wiersz z nazwiskiem" type="number" value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")} onChange={(v) => onChange("pierwszy_wiersz_z_nazwiskiem", v)} />
+                              <Field label="Nazwa" value={String(editRow.nazwa ?? "")} onChange={(v) => setEditRow(s => ({ ...s, nazwa: v }))} />
+                              <Field label="Arkusz (nazwa karty)" value={String(editRow.arkusz_nazwa ?? "")} onChange={(v) => setEditRow(s => ({ ...s, arkusz_nazwa: v }))} />
+                              <Field label="Kolumna z nazwiskami" value={String(editRow.kolumna_nazwisk ?? "")} onChange={(v) => setEditRow(s => ({ ...s, kolumna_nazwisk: v.toUpperCase() }))} />
+                              <Field label="Pierwszy wiersz z nazwiskiem" type="number" value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")} onChange={(v) => setEditRow(s => ({ ...s, pierwszy_wiersz_z_nazwiskiem: v }))} />
                               <Field
                                 label="Link do Google Sheets"
                                 value={String(editRow.gsheet_url ?? "")}
                                 onChange={(v) => setEditRow((s) => ({ ...s, gsheet_url: v, gsheet_id: extractIdFromUrl(v) || null }))}
                                 className="md:col-span-2"
                               />
-                              <Field label="Data turnieju" type="date" value={String(editRow.data_turnieju ?? "")} onChange={(v) => setEditRow((s) => ({ ...s, data_turnieju: v || null }))} />
-                              <Field label="Godzina rozpoczęcia" type="time" value={String(editRow.godzina_turnieju ?? "")} onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))} />
+                              <Field label="Data turnieju" type="date" value={String(editRow.data_turnieju ?? "")} onChange={(v) => setEditRow(s => ({ ...s, data_turnieju: v || null }))} />
+                              <Field label="Godzina rozpoczęcia" type="time" value={String(editRow.godzina_turnieju ?? "")} onChange={(v) => setEditRow(s => ({ ...s, godzina_turnieju: v || null }))} />
 
                               <div className="md:col-span-2">
                                 <div className="flex flex-wrap items-center gap-3">
@@ -1023,21 +1040,11 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                                   )}
 
                                   <div className="ml-auto flex gap-2">
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-                                      onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}
-                                    >
-                                      <Users className="w-4 h-4" />
-                                      Lista grających
+                                    <button type="button" className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50" onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}>
+                                      <Users className="w-4 h-4" /> Lista grających
                                     </button>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-                                      onClick={(e) => { e.stopPropagation(); setAddPartiaFor(t); }}
-                                    >
-                                      <Swords className="w-4 h-4" />
-                                      Dodaj partię
+                                    <button type="button" className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50" onClick={(e) => { e.stopPropagation(); setAddPartiaFor(t); }}>
+                                      <Swords className="w-4 h-4" /> Dodaj partię
                                     </button>
                                   </div>
                                 </div>
@@ -1085,7 +1092,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
               {(!isLoadingList && list.length === 0) && (
@@ -1108,22 +1115,164 @@ export default function AdminShell({ email, role }: { email: string; role: strin
           tournament={playersModalFor}
         />
       )}
-
       {addPartiaFor && (
         <AddPartiaModal
           open={!!addPartiaFor}
           onClose={() => setAddPartiaFor(null)}
           tournament={addPartiaFor}
-          onSaved={() => {
-            // po zapisie możesz np. zamknąć modal i odświeżyć coś jeszcze
-          }}
+          onSaved={() => { /* po zapisie można odświeżyć listy jeśli chcesz */ }}
         />
       )}
+    </>
+  );
+}
+
+/* ============================================================
+   Zakładka: Partie (lista z widoku wyniki_wide)
+   ============================================================ */
+function PartieTab() {
+  const [turnieje, setTurnieje] = useState<TurniejRow[]>([]);
+  const [turniejId, setTurniejId] = useState<string>(""); // filtr
+  const [rows, setRows] = useState<WynikWide[]>([]);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const PAGE_SIZE = 50;
+
+  useEffect(() => {
+    // załaduj listę turniejów do filtra
+    supabaseBrowser
+      .from("turniej")
+      .select("id,nazwa")
+      .order("created_at", { ascending: false })
+      .then(({ data }) => setTurnieje((data as TurniejRow[]) || []));
+  }, []);
+
+  async function load(reset = false) {
+    setLoading(true);
+    const nextPage = reset ? 0 : page;
+    let q = supabaseBrowser
+      .from("wyniki_wide")
+      .select("*")
+      .order("timestamp", { ascending: false })
+      .order("numer_dodania", { ascending: false })
+      .range(nextPage * PAGE_SIZE, nextPage * PAGE_SIZE + PAGE_SIZE - 1);
+
+    if (turniejId) q = q.eq("turniej_id", turniejId);
+
+    const { data, error } = await q;
+    if (error) {
+      setLoading(false);
+      return;
+    }
+    const list = (data || []) as WynikWide[];
+    if (reset) {
+      setRows(list);
+      setPage(1);
+    } else {
+      setRows((prev) => [...prev, ...list]);
+      setPage(nextPage + 1);
+    }
+    setHasMore(list.length === PAGE_SIZE);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load(true); // pierwszy raz i przy zmianie filtra
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turniejId]);
+
+  function renderPlayers(r: WynikWide) {
+    const P = [
+      { n: r.gracz_a, d: r.delta_a, w: r.zwyciezca_id && r.gracz_a ? r.delta_a != null && r.delta_a >= 0 : false },
+      { n: r.gracz_b, d: r.delta_b, w: r.zwyciezca_id && r.gracz_b ? r.delta_b != null && r.delta_b >= 0 : false },
+      { n: r.gracz_c, d: r.delta_c, w: r.zwyciezca_id && r.gracz_c ? r.delta_c != null && r.delta_c >= 0 : false },
+      { n: r.gracz_d, d: r.delta_d, w: r.zwyciezca_id && r.gracz_d ? r.delta_d != null && r.delta_d >= 0 : false },
+    ].filter((p) => p.n);
+    return (
+      <div className="flex flex-wrap gap-2">
+        {P.map((p, idx) => (
+          <span
+            key={idx}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${p.w ? "bg-green-50 border-green-200 text-green-700" : "bg-gray-50 border-gray-200 text-gray-700"}`}
+          >
+            {p.n}
+            {typeof p.d === "number" && (
+              <span className={p.d >= 0 ? "text-green-700" : "text-red-700"}>
+                ({p.d >= 0 ? "+" : ""}{p.d})
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      <div className="card">
+        <div className="flex items-center gap-3">
+          <label className="text-sm">
+            <span className="text-gray-600 mr-2">Turniej</span>
+            <select
+              value={turniejId}
+              onChange={(e) => setTurniejId(e.target.value)}
+              className="rounded-md border px-2 py-1"
+            >
+              <option value="">— wszystkie —</option>
+              {turnieje.map((t) => (
+                <option key={t.id} value={t.id}>{t.nazwa}</option>
+              ))}
+            </select>
+          </label>
+          <button onClick={() => load(true)} className="btn btn-outline inline-flex items-center gap-2">
+            <Loader2 className="w-4 h-4" /> Odśwież
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-3 py-2 w-[170px]">Czas</th>
+                <th className="text-left px-3 py-2">Turniej</th>
+                <th className="text-left px-3 py-2">Gracze (Δ)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.partia_id} className="border-t">
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {new Date(r.timestamp).toLocaleString()}
+                  </td>
+                  <td className="px-3 py-2">{r.turniej}</td>
+                  <td className="px-3 py-2">{renderPlayers(r)}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && !loading && (
+                <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-500">Brak danych</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex items-center justify-center py-3">
+          {hasMore ? (
+            <button disabled={loading} onClick={() => load(false)} className="btn btn-outline">
+              {loading ? "Ładowanie..." : "Załaduj więcej"}
+            </button>
+          ) : (
+            <span className="text-xs text-gray-500">{loading ? "Ładowanie..." : "To już wszystko"}</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-/* ===== Pomocnicze ===== */
+/* ========== Pomocnicze ========== */
 function Field({
   label,
   value,
