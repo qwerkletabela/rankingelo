@@ -27,6 +27,13 @@ body {
 .table th { @apply text-left text-gray-500 font-medium pb-2; }
 .table td { @apply py-2; }
 
+.badge-elo-lt1400 { background:#6B7280; border:1px solid #9CA3AF; color:#fff; }
+.badge-elo-1400   { background:#EA580C; border:1px solid #C2410C; color:#fff; }
+.badge-elo-1800   { background:#2563EB; border:1px solid #1D4ED8; color:#fff; }
+.badge-elo-2000   { background:#9333EA; border:1px solid #7E22CE; color:#fff; }
+.badge-elo-2200   { background:#059669; border:1px solid #047857; color:#fff; }
+
+
 /* Przyciski */
 .btn { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium; }
 .btn-primary { @apply bg-brand-700 text-white hover:bg-brand-800 active:bg-brand-900; }
