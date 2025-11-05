@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useEffect, useMemo, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import {
   ChevronDown,
@@ -15,12 +15,12 @@ import {
   Loader2,
   Plus,
   Swords,
-  RefreshCw,
+  ToggleRight,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
 import { normDb } from "@/lib/norm";
 
-/* ========== Typy ========== */
+/* ===== Typy ===== */
 type TurniejRow = {
   id: string;
   nazwa: string;
@@ -58,42 +58,14 @@ type Gracz = {
   fullname_norm: string;
 };
 
-type WynikWide = {
-  turniej_id: string;
-  turniej: string;
-  stolik_id: string;
+type WynikRow = {
   partia_id: string;
-  partia_nr: number;
-  timestamp: string;      // view kolumna "timestamp"
-  numer_dodania: number;
-  zwyciezca_id: string | null;
-  // gracze i parametry A..D (mogą być null jeśli mniej niż 4 osób)
-  gracz_a: string | null;
-  elo_a_przed: number | null;
-  delta_a: number | null;
-  elo_a_po: number | null;
-  male_a: number | null;
-
-  gracz_b: string | null;
-  elo_b_przed: number | null;
-  delta_b: number | null;
-  elo_b_po: number | null;
-  male_b: number | null;
-
-  gracz_c: string | null;
-  elo_c_przed: number | null;
-  delta_c: number | null;
-  elo_c_po: number | null;
-  male_c: number | null;
-
-  gracz_d: string | null;
-  elo_d_przed: number | null;
-  delta_d: number | null;
-  elo_d_po: number | null;
-  male_d: number | null;
+  gracz: string;
+  elo_delta: number;
+  wygral: boolean;
 };
 
-/* ========== Utils ========== */
+/* ===== Utils ===== */
 function extractIdFromUrl(url: string): string | null {
   const m = url?.match?.(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return m ? m[1] : null;
@@ -102,7 +74,6 @@ function toTimeInput(v?: string | null) {
   if (!v) return "";
   return v.slice(0, 5);
 }
-const pad = (n: number) => String(n).padStart(2, "0");
 
 /* ============================================================
    Modal: Lista grających (z dodawaniem brakujących do DB)
@@ -236,7 +207,7 @@ function PlayersListModal({
               className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
               title="Odśwież"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+              <Users className="w-4 h-4" />
               Odśwież
             </button>
             <button
@@ -260,12 +231,7 @@ function PlayersListModal({
             </div>
           )}
 
-          {loading ? (
-            <div className="flex items-center gap-2 text-gray-600">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Wczytywanie listy z arkusza…
-            </div>
-          ) : total === 0 ? (
+          {total === 0 ? (
             <div className="text-sm text-gray-600">Brak nazwisk do wyświetlenia.</div>
           ) : (
             <>
@@ -341,9 +307,94 @@ function PlayersListModal({
 }
 
 /* ============================================================
-   Modal: Dodaj partię (prosty / szczegółowy)
+   Autocomplete: szukanie w tabeli gracz po fullname_norm (bez ogonków)
    ============================================================ */
-function AddPartiaModal({
+function PlayerSearch({
+  label,
+  value,
+  onSelect,
+  excludeIds,
+}: {
+  label: string;
+  value: Gracz | null;
+  onSelect: (g: Gracz | null) => void;
+  excludeIds: string[];
+}) {
+  const [q, setQ] = useState("");
+  const [list, setList] = useState<Gracz[]>([]);
+  const timer = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (timer.current) window.clearTimeout(timer.current);
+    if (!q.trim()) {
+      setList([]);
+      return;
+    }
+    timer.current = window.setTimeout(async () => {
+      const needle = normDb(q.trim());
+      const { data, error } = await supabaseBrowser
+        .from("gracz")
+        .select("id,imie,nazwisko,ranking,fullname_norm")
+        .ilike("fullname_norm", `%${needle}%`)
+        .limit(10);
+      if (!error) {
+        setList(((data || []) as Gracz[]).filter((g) => !excludeIds.includes(g.id)));
+      }
+    }, 180);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, excludeIds.join(",")]);
+
+  return (
+    <div className="grid gap-1">
+      <span className="text-xs text-gray-600">{label}</span>
+      {value ? (
+        <div className="flex items-center justify-between rounded-lg border px-3 py-2">
+          <span>
+            {value.imie} {value.nazwisko}{" "}
+            <span className="text-xs text-gray-500">ELO {Math.round(value.ranking)}</span>
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={() => onSelect(null)}>
+            <X className="w-4 h-4" /> Usuń
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Wpisz imię i nazwisko…"
+            className="w-full rounded-lg border px-3 py-2"
+          />
+          {list.length > 0 && (
+            <div className="rounded-lg border divide-y">
+              {list.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(g);
+                    setQ("");
+                    setList([]);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-gray-50"
+                >
+                  {g.imie} {g.nazwisko} <span className="text-xs text-gray-500">ELO {Math.round(g.ranking)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   Modal-kreator: Dodaj partię (tryb zwycięzca / tryb małe punkty)
+   ============================================================ */
+type GameMode = "winner" | "small";
+
+function AddPartiaWizard({
   open,
   onClose,
   tournament,
@@ -354,251 +405,418 @@ function AddPartiaModal({
   tournament: TurniejRow;
   onSaved: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  // Krok 1: ustawienia stołu
+  const [playersCount, setPlayersCount] = useState(4);
+  const [gamesCount, setGamesCount] = useState(3);
+
+  // Krok 2: wybór składu
+  const [A, setA] = useState<Gracz | null>(null);
+  const [B, setB] = useState<Gracz | null>(null);
+  const [C, setC] = useState<Gracz | null>(null);
+  const [D, setD] = useState<Gracz | null>(null);
+
+  // Krok 3: zwycięzcy / małe punkty
+  const [modes, setModes] = useState<GameMode[]>([]);
+  const [winners, setWinners] = useState<string[]>([]); // dla trybu "winner"
+  const [smallMap, setSmallMap] = useState<Record<number, Record<string, string>>>({}); // gameIdx -> {playerId: "-10", ...}
+
+  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const [mode, setMode] = useState<"simple" | "detailed">("simple");
-  const [playedAt, setPlayedAt] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(
-      d.getMinutes()
-    )}`;
-  });
-
-  const [options, setOptions] = useState<Gracz[]>([]);
-  const [winnerId, setWinnerId] = useState<string>("");
-  const [losersIds, setLosersIds] = useState<string[]>([]);
-  const [losersSmall, setLosersSmall] = useState<Record<string, string>>({});
-
-  async function loadCandidates() {
-    setLoading(true);
-    setErr(null);
-    setOk(null);
-
-    const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
-    const j = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      setErr(j.error || "Nie udało się pobrać listy z arkusza");
-      setLoading(false);
-      return;
-    }
-    const names: string[] = (j.names || [])
-      .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
-      .filter(Boolean)
-      .slice(0, 800);
-
-    if (!names.length) {
-      setOptions([]);
-      setLoading(false);
-      return;
-    }
-
-    const norms = Array.from(new Set(names.map(normDb)));
-    const { data: found, error } = await supabaseBrowser
-      .from("gracz")
-      .select("id,imie,nazwisko,ranking,fullname_norm")
-      .in("fullname_norm", norms);
-
-    if (error) {
-      setErr(error.message);
-      setLoading(false);
-      return;
-    }
-
-    const arr = (found || []) as Gracz[];
-    arr.sort((a, b) => (a.nazwisko + a.imie).localeCompare(b.nazwisko + b.imie, "pl"));
-    setOptions(arr);
-    setLoading(false);
-  }
+  const [summary, setSummary] = useState<{ partia_id: string; rows: WynikRow[] }[] | null>(null);
 
   useEffect(() => {
-    if (open) loadCandidates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tournament.id]);
+    if (!open) {
+      setStep(1);
+      setPlayersCount(4);
+      setGamesCount(3);
+      setA(null); setB(null); setC(null); setD(null);
+      setModes([]);
+      setWinners([]);
+      setSmallMap({});
+      setErr(null);
+      setSummary(null);
+    }
+  }, [open]);
 
-  const losersAvailable = useMemo(() => options.filter((p) => p.id !== winnerId), [options, winnerId]);
+  const lineup = useMemo(() => [A, B, C, D].filter(Boolean) as Gracz[], [A, B, C, D]);
+  const lineupIds = useMemo(() => lineup.map((g) => g.id).slice(0, playersCount), [lineup, playersCount]);
+  const lineupLabels = useMemo(() => lineup.map((g) => `${g.imie} ${g.nazwisko}`).slice(0, playersCount), [lineup, playersCount]);
 
-  function toggleLoser(id: string) {
-    setLosersIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const selectedIds = useMemo(() => [A?.id, B?.id, C?.id, D?.id].filter(Boolean) as string[], [A?.id, B?.id, C?.id, D?.id]);
+
+  const lineupOk = useMemo(() => lineupIds.length === playersCount, [lineupIds.length, playersCount]);
+
+  function proceedToWinners() {
+    setErr(null);
+    if (!lineupOk) {
+      setErr("Uzupełnij skład (A, B, C, D) zgodnie z liczbą graczy.");
+      return;
+    }
+    setStep(3);
+    setWinners(Array(gamesCount).fill(""));
+    setModes(Array(gamesCount).fill("winner"));
+    setSmallMap({});
   }
 
-  async function save() {
-    setErr(null);
-    setOk(null);
+  function setModeAt(i: number, mode: GameMode) {
+    setModes((m) => {
+      const copy = m.slice();
+      copy[i] = mode;
+      return copy;
+    });
+  }
+  function setSmallVal(gameIdx: number, playerId: string, val: string) {
+    setSmallMap((m) => {
+      const copy = { ...m };
+      copy[gameIdx] = { ...(copy[gameIdx] || {}), [playerId]: val };
+      return copy;
+    });
+  }
 
-    if (!winnerId) return setErr("Wybierz zwycięzcę.");
-    if (losersIds.length < 1) return setErr("Wybierz co najmniej jednego przegranego.");
-    if (losersIds.length > 3) return setErr("Maksymalnie 3 przegranych (stół do 4 osób).");
-
-    let losersPayload: { id: string; mp: number }[] = [];
-    if (mode === "detailed") {
-      for (const id of losersIds) {
-        const raw = losersSmall[id];
-        if (raw == null || raw === "") return setErr("Uzupełnij małe punkty dla wszystkich przegranych.");
-        const num = Number(raw);
-        if (!Number.isFinite(num) || num >= 0) return setErr("Małe punkty muszą być ujemne (np. -35).");
-        losersPayload.push({ id, mp: num });
-      }
-    } else {
-      losersPayload = losersIds.map((id) => ({ id, mp: -1 }));
+  function parseNum(x: string | undefined) {
+    if (x == null) return NaN;
+    const n = Number(String(x).replace(",", "."));
+    return Number.isFinite(n) ? n : NaN;
     }
 
-    setLoading(true);
+  async function saveAll() {
+    setErr(null);
+
+    // Walidacja krok 3
+    for (let i = 0; i < gamesCount; i++) {
+      const mode = modes[i] || "winner";
+      if (mode === "winner") {
+        if (!winners[i]) {
+          setErr(`Zaznacz zwycięzcę w partii ${i + 1}.`);
+          return;
+        }
+      } else {
+        // small-points: muszą być ujemne dla dokładnie (playersCount-1) graczy, a zwycięzca bez wartości lub 0
+        const vals = lineupIds.map((pid) => parseNum(smallMap[i]?.[pid]));
+        const negIdx = vals.map((v, idx) => (v < 0 ? idx : -1)).filter((k) => k >= 0);
+        if (negIdx.length !== playersCount - 1) {
+          setErr(`W partii ${i + 1} podaj ujemne małe punkty dla wszystkich przegranych (dokładnie ${playersCount - 1} wartości). Zwycięzca puste lub 0.`);
+          return;
+        }
+      }
+    }
+
+    setSaving(true);
     try {
-      // stolik
-      const { data: stolikIns, error: stErr } = await supabaseBrowser
+      // 1) Stół
+      const { data: st, error: stErr } = await supabaseBrowser
         .from("stolik")
         .insert({ turniej_id: tournament.id })
         .select("id")
         .maybeSingle();
-      if (stErr || !stolikIns?.id) throw new Error(stErr?.message || "Błąd tworzenia stołu");
+      if (stErr || !st?.id) throw new Error(stErr?.message || "Błąd tworzenia stołu");
 
-      // partia
-      const playedIso = playedAt ? new Date(playedAt).toISOString() : new Date().toISOString();
-      const { data: partiaIns, error: pErr } = await supabaseBrowser
-        .from("partia")
-        .insert({
-          stolik_id: stolikIns.id,
-          nr: 1,
-          played_at: playedIso,
-          zwyciezca_gracz_id: winnerId,
-        })
-        .select("id")
-        .maybeSingle();
-      if (pErr || !partiaIns?.id) throw new Error(pErr?.message || "Błąd tworzenia partii");
+      const createdPartie: string[] = [];
 
-      // małe punkty
-      const rows = losersPayload.map((l) => ({ partia_id: partiaIns.id, gracz_id: l.id, punkty: l.mp }));
-      const { error: pmErr } = await supabaseBrowser.from("partia_male").insert(rows);
-      if (pmErr) throw new Error(pmErr.message);
+      // 2) Partie
+      for (let i = 0; i < gamesCount; i++) {
+        const mode = modes[i] || "winner";
+        let winnerId = "";
+        let losersRows: { partia_id: string; gracz_id: string; punkty: number }[] = [];
 
-      // przelicz ELO
+        if (mode === "winner") {
+          // zwycięzca z radia
+          winnerId = winners[i];
+        } else {
+          // wylicz zwycięzcę z małych punktów: ujemne dla przegranych, zwycięzca brak/0
+          const vals = lineupIds.map((pid) => parseNum(smallMap[i]?.[pid]));
+          const losers: { pid: string; mp: number }[] = [];
+          let winnerIdx: number | null = null;
+          for (let j = 0; j < lineupIds.length; j++) {
+            const v = vals[j];
+            if (Number.isNaN(v) || v === 0) {
+              // kandydat na zwycięzcę
+              if (winnerIdx === null) winnerIdx = j;
+              else {
+                // więcej niż jeden „nieujemny” => niejednoznaczność
+                throw new Error(`W partii ${i + 1} jest więcej niż jeden gracz bez ujemnych małych punktów. Zostaw puste/0 tylko zwycięzcy.`);
+              }
+            } else if (v < 0) {
+              losers.push({ pid: lineupIds[j], mp: v });
+            } else {
+              // dodatnie nie są dozwolone w wejściu
+              throw new Error(`W partii ${i + 1} wpisz u przegranych wartości ujemne (np. -10). Dodatnie nie są dozwolone.`);
+            }
+          }
+          if (winnerIdx === null) {
+            throw new Error(`W partii ${i + 1} nie wybrano zwycięzcy (zostaw puste/0 u jednego gracza).`);
+          }
+          if (losers.length !== playersCount - 1) {
+            throw new Error(`W partii ${i + 1} liczba przegranych różna od ${playersCount - 1}.`);
+          }
+          winnerId = lineupIds[winnerIdx];
+
+          // losers -> partia_male
+          // (w bazie zwycięzca dostanie sumę na plus w widoku; tu zapisujemy tylko ujemne przegranych)
+          losersRows = losers.map((L) => ({ partia_id: "", gracz_id: L.pid, punkty: L.mp }));
+        }
+
+        // utwórz partia
+        const { data: p, error: pErr } = await supabaseBrowser
+          .from("partia")
+          .insert({
+            stolik_id: st.id,
+            nr: i + 1,
+            played_at: new Date().toISOString(),
+            zwyciezca_gracz_id: winnerId,
+          })
+          .select("id")
+          .maybeSingle();
+        if (pErr || !p?.id) throw new Error(pErr?.message || "Błąd tworzenia partii");
+        createdPartie.push(p.id);
+
+        // partia_male
+        if (mode === "winner") {
+          // placeholder -1 dla przegranych
+          const losers = lineupIds.filter((id) => id !== winnerId);
+          if (losers.length) {
+            const rows = losers.map((id) => ({ partia_id: p.id, gracz_id: id, punkty: -1 }));
+            const { error: mErr } = await supabaseBrowser.from("partia_male").insert(rows);
+            if (mErr) throw new Error(mErr.message);
+          }
+        } else {
+          if (losersRows.length) {
+            const rows = losersRows.map((r) => ({ ...r, partia_id: p.id }));
+            const { error: mErr } = await supabaseBrowser.from("partia_male").insert(rows);
+            if (mErr) throw new Error(mErr.message);
+          }
+        }
+      }
+
+      // 3) Przelicz ELO
       const { error: rpcErr } = await supabaseBrowser.rpc("elo_recompute_all");
-      if (rpcErr) throw new Error("Zapisano partię, ale przeliczenie ELO nie powiodło się: " + rpcErr.message);
+      if (rpcErr) throw new Error("Zapisano partie, ale przeliczenie ELO nie powiodło się: " + rpcErr.message);
 
-      setOk("Partia dodana i ranking przeliczony ✅");
+      // 4) Podsumowanie
+      const summaries: { partia_id: string; rows: WynikRow[] }[] = [];
+      for (const pid of createdPartie) {
+        const { data, error } = await supabaseBrowser
+          .from("wyniki_rows")
+          .select("partia_id,gracz,elo_delta,wygral")
+          .eq("partia_id", pid);
+        if (!error) {
+          summaries.push({ partia_id: pid, rows: (data || []) as WynikRow[] });
+        }
+      }
+      setSummary(summaries);
       onSaved();
     } catch (e: any) {
       setErr(e.message || "Błąd zapisu");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-xl ring-1 ring-black/10 overflow-hidden">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl ring-1 ring-black/10 overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="font-semibold inline-flex items-center gap-2">
             <Swords className="w-4 h-4" />
             Dodaj partię — {tournament.nazwa}
           </div>
-          <button
-            onClick={onClose}
-            className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
-          >
+          <button onClick={onClose} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50">
             <X className="w-4 h-4" /> Zamknij
           </button>
         </div>
 
         <div className="p-4 grid gap-4">
           {err && <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
-          {ok && <div className="rounded-lg border border-green-200 bg-green-50 text-green-700 px-3 py-2 text-sm">{ok}</div>}
 
-          {/* Data/czas */}
-          <label className="text-sm grid gap-1">
-            <span className="text-gray-600">Data i czas partii</span>
-            <input
-              type="datetime-local"
-              value={playedAt}
-              onChange={(e) => setPlayedAt(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2"
-            />
-          </label>
-
-          {/* Tryb */}
-          <div className="flex items-center gap-4">
-            <label className="inline-flex items-center gap-2">
-              <input type="radio" name="mode" value="simple" checked={mode === "simple"} onChange={() => setMode("simple")} />
-              <span className="text-sm">Mniej szczegółowo (bez małych punktów)</span>
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input type="radio" name="mode" value="detailed" checked={mode === "detailed"} onChange={() => setMode("detailed")} />
-              <span className="text-sm">Więcej szczegółów (małe punkty przegranych)</span>
-            </label>
-          </div>
-
-          {/* Zwycięzca */}
-          <label className="text-sm grid gap-1">
-            <span className="text-gray-600">Zwycięzca</span>
-            <select
-              value={winnerId}
-              onChange={(e) => {
-                setWinnerId(e.target.value);
-                setLosersIds((arr) => arr.filter((id) => id !== e.target.value));
-              }}
-              className="rounded-lg border border-gray-300 px-3 py-2"
-            >
-              <option value="">— wybierz —</option>
-              {options.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.imie} {p.nazwisko} (ELO {Math.round(p.ranking)})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {/* Przegrani */}
-          <div>
-            <div className="text-sm text-gray-600 mb-1">Przegrani (zaznacz 1–3)</div>
-            <div className="rounded-lg border divide-y">
-              {options.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-gray-500">Najpierw dodaj zawodników w „Liście grających”.</div>
-              ) : (
-                useMemo(
-                  () =>
-                    options
-                      .filter((p) => p.id !== winnerId)
-                      .map((p) => {
-                        const checked = losersIds.includes(p.id);
-                        return (
-                          <label key={p.id} className="flex items-center gap-3 px-3 py-2">
-                            <input type="checkbox" checked={checked} onChange={() => toggleLoser(p.id)} />
-                            <span className="flex-1">
-                              {p.imie} {p.nazwisko}{" "}
-                              <span className="text-xs text-gray-500">ELO {Math.round(p.ranking)}</span>
+          {summary ? (
+            <>
+              <div className="text-sm font-semibold">Zapisano. Podsumowanie zmian (Δ) dla każdej partii:</div>
+              <div className="grid gap-3">
+                {summary.map((s, idx) => (
+                  <div key={s.partia_id} className="rounded-lg border px-3 py-2">
+                    <div className="text-xs text-gray-500 mb-1">Partia {idx + 1}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {s.rows
+                        .sort((a, b) => Number(b.wygral) - Number(a.wygral) || a.gracz.localeCompare(b.gracz, "pl"))
+                        .map((r, i) => (
+                          <span
+                            key={i}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${
+                              r.wygral ? "bg-green-50 border-green-200 text-green-700" : "bg-gray-50 border-gray-200 text-gray-700"
+                            }`}
+                          >
+                            {r.gracz}
+                            <span className={r.elo_delta >= 0 ? "text-green-700" : "text-red-700"}>
+                              ({r.elo_delta >= 0 ? "+" : ""}{r.elo_delta})
                             </span>
-                            {mode === "detailed" && checked && (
-                              <span className="inline-flex items-center gap-2">
-                                <span className="text-xs text-gray-500">małe:</span>
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setSummary(null);
+                    setStep(1);
+                    setA(null); setB(null); setC(null); setD(null);
+                    setWinners([]);
+                    setSmallMap({});
+                    setModes([]);
+                  }}
+                >
+                  Wprowadź kolejny stolik
+                </button>
+                <button className="btn btn-ghost" onClick={onClose}>Zamknij</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {step === 1 && (
+                <div className="grid gap-3">
+                  <div className="text-sm">Ustawienia stołu</div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <span>Liczba graczy:</span>
+                      <select
+                        value={playersCount}
+                        onChange={(e) => setPlayersCount(Number(e.target.value))}
+                        className="rounded-md border px-2 py-1"
+                      >
+                        <option value={2}>2</option>
+                        <option value={3}>3</option>
+                        <option value={4}>4</option>
+                      </select>
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <span>Liczba partii:</span>
+                      <select
+                        value={gamesCount}
+                        onChange={(e) => setGamesCount(Number(e.target.value))}
+                        className="rounded-md border px-2 py-1"
+                      >
+                        <option value={1}>1</option>
+                        <option value={2}>2</option>
+                        <option value={3}>3</option>
+                        <option value={4}>4</option>
+                        <option value={5}>5</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button className="btn btn-primary" onClick={() => setStep(2)}>Dalej</button>
+                    <button className="btn btn-ghost" onClick={onClose}>Anuluj</button>
+                  </div>
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="grid gap-4">
+                  <div className="text-sm">Wybierz skład (A–D). Po wybraniu gracza nie pojawia się on w kolejnych polach.</div>
+                  <PlayerSearch label="Gracz A" value={A} onSelect={setA} excludeIds={selectedIds} />
+                  {playersCount >= 2 && <PlayerSearch label="Gracz B" value={B} onSelect={setB} excludeIds={selectedIds} />}
+                  {playersCount >= 3 && <PlayerSearch label="Gracz C" value={C} onSelect={setC} excludeIds={selectedIds} />}
+                  {playersCount >= 4 && <PlayerSearch label="Gracz D" value={D} onSelect={setD} excludeIds={selectedIds} />}
+
+                  <div className="flex items-center gap-2">
+                    <button className="btn btn-ghost" onClick={() => setStep(1)}>Wstecz</button>
+                    <button className="btn btn-primary" onClick={proceedToWinners}>Zatwierdź skład</button>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && (
+                <div className="grid gap-4">
+                  <div className="text-sm">Dla każdej partii wybierz tryb: <b>Zwycięzca</b> albo <b>Małe punkty</b>.</div>
+
+                  {Array.from({ length: gamesCount }).map((_, idx) => {
+                    const mode = modes[idx] || "winner";
+                    return (
+                      <div key={idx} className="rounded-lg border px-3 py-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-xs text-gray-600">Partia {idx + 1}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600">Tryb:</span>
+                            <div className="inline-flex rounded-md border overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => setModeAt(idx, "winner")}
+                                className={`px-2 py-1 text-xs ${mode === "winner" ? "bg-gray-900 text-white" : "bg-white"}`}
+                              >
+                                Zwycięzca
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModeAt(idx, "small")}
+                                className={`px-2 py-1 text-xs ${mode === "small" ? "bg-gray-900 text-white" : "bg-white"}`}
+                              >
+                                Małe punkty
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {mode === "winner" ? (
+                          <div className="flex flex-col gap-1">
+                            {lineupIds.map((id, i2) => (
+                              <label key={id} className="inline-flex items-center gap-2">
+                                <input
+                                  type="radio"
+                                  name={`p${idx}`}
+                                  value={id}
+                                  checked={winners[idx] === id}
+                                  onChange={(e) => {
+                                    const copy = winners.slice();
+                                    copy[idx] = e.target.value;
+                                    setWinners(copy);
+                                  }}
+                                />
+                                <span className="text-sm">{lineupLabels[i2]}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="grid gap-2">
+                            <div className="text-xs text-gray-600">
+                              Wpisz <b>ujemne</b> małe punkty wszystkim przegranym. Zwycięzcy zostaw puste lub 0.
+                            </div>
+                            {lineupIds.map((pid, i2) => (
+                              <label key={pid} className="text-sm flex items-center gap-2">
+                                <span className="w-44">{lineupLabels[i2]}</span>
                                 <input
                                   type="number"
                                   step="1"
-                                  placeholder="-35"
-                                  className="w-24 rounded-md border px-2 py-1 text-sm"
-                                  value={losersSmall[p.id] ?? ""}
-                                  onChange={(e) => setLosersSmall((m) => ({ ...m, [p.id]: e.target.value }))}
+                                  placeholder="np. -10"
+                                  value={smallMap[idx]?.[pid] ?? ""}
+                                  onChange={(e) => setSmallVal(idx, pid, e.target.value)}
+                                  className="w-28 rounded-md border px-2 py-1"
                                 />
-                              </span>
-                            )}
-                          </label>
-                        );
-                      }),
-                  [options, winnerId, losersIds, mode, losersSmall]
-                )
-              )}
-            </div>
-          </div>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
 
-          <div className="flex items-center gap-2">
-            <button onClick={save} disabled={loading} className="btn btn-primary inline-flex items-center gap-2">
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Swords className="w-4 h-4" />}
-              Zapisz partię i przelicz ELO
-            </button>
-            <button onClick={onClose} className="btn btn-ghost">Anuluj</button>
-          </div>
+                  <div className="flex items-center gap-2">
+                    <button className="btn btn-ghost" onClick={() => setStep(2)}>Wstecz</button>
+                    <button className="btn btn-primary" disabled={saving} onClick={saveAll}>
+                      {saving ? "Zapisywanie…" : "Zapisz partie"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -606,38 +824,9 @@ function AddPartiaModal({
 }
 
 /* ============================================================
-   Główny panel: zakładki „Turnieje” i „Partie”
+   Główny panel – sekcja Turnieje
    ============================================================ */
 export default function AdminShell({ email, role }: { email: string; role: string }) {
-  const [activeTab, setActiveTab] = useState<"turnieje" | "partie">("turnieje");
-
-  return (
-    <div className="grid gap-6">
-      {/* Zakładki */}
-      <div className="flex items-center gap-2 border-b">
-        <button
-          className={`px-3 py-2 -mb-px border-b-2 ${activeTab === "turnieje" ? "border-brand-600 font-semibold" : "border-transparent text-gray-500"}`}
-          onClick={() => setActiveTab("turnieje")}
-        >
-          Turnieje
-        </button>
-        <button
-          className={`px-3 py-2 -mb-px border-b-2 ${activeTab === "partie" ? "border-brand-600 font-semibold" : "border-transparent text-gray-500"}`}
-          onClick={() => setActiveTab("partie")}
-        >
-          Partie
-        </button>
-      </div>
-
-      {activeTab === "turnieje" ? <TurniejeTab /> : <PartieTab />}
-    </div>
-  );
-}
-
-/* ============================================================
-   Zakładka: Turnieje (dodawanie/edycja + modale)
-   ============================================================ */
-function TurniejeTab() {
   // Dodawanie turnieju
   const [nazwa, setNazwa] = useState("");
   const [gsheetUrl, setGsheetUrl] = useState("");
@@ -663,49 +852,20 @@ function TurniejeTab() {
   const [playersModalFor, setPlayersModalFor] = useState<TurniejRow | null>(null);
   const [addPartiaFor, setAddPartiaFor] = useState<TurniejRow | null>(null);
 
-  // status
+  // msg
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isLoadingList, setIsLoadingList] = useState(true);
 
-  async function loadList(retry = 0) {
-    setIsLoadingList(true);
+  async function loadList() {
     const { data, error } = await supabaseBrowser
       .from("turniej")
       .select("*")
       .order("created_at", { ascending: false });
-
-    if (error) {
-      if (retry < 1) {
-        setTimeout(() => loadList(retry + 1), 500);
-      } else {
-        setErr(error.message);
-        setIsLoadingList(false);
-      }
-      return;
-    }
-
-    if (Array.isArray(data) && data.length === 0 && retry < 1) {
-      setTimeout(() => loadList(retry + 1), 400);
-      return;
-    }
-
-    setList((data || []) as TurniejRow[]);
-    setIsLoadingList(false);
+    if (error) setErr(error.message);
+    else setList((data || []) as TurniejRow[]);
   }
-  useEffect(() => {
-    loadList();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function recomputeAll() {
-    setErr(null);
-    setOk(null);
-    const { error } = await supabaseBrowser.rpc("elo_recompute_all");
-    if (error) setErr("Błąd przeliczania ELO: " + error.message);
-    else setOk("Ranking przeliczony ✅");
-  }
+  useEffect(() => { loadList(); }, []);
 
   async function addTurniej(e: React.FormEvent) {
     e.preventDefault();
@@ -767,10 +927,6 @@ function TurniejeTab() {
     });
   }
 
-  function onChange<K extends keyof EditState>(key: K, val: string) {
-    setEditRow((row) => ({ ...row, [key]: val }));
-  }
-
   async function saveEdit(id: string) {
     setErr(null);
     setOk(null);
@@ -822,26 +978,10 @@ function TurniejeTab() {
   const canSaveNew = nazwa.trim() && gsheetUrl.trim() && arkuszNazwa.trim() && kolumnaNazwisk.trim();
 
   return (
-    <>
-      {/* Pasek szybkich akcji */}
+    <div className="grid gap-6">
+      {/* Dodawanie turnieju (zwin/rozwiń) */}
       <div className="card">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold">Szybkie akcje</h3>
-          <div className="flex gap-2">
-            <button onClick={() => loadList(0)} className="btn btn-outline inline-flex items-center gap-2">
-              <Loader2 className="w-4 h-4" /> Odśwież
-            </button>
-            <button onClick={recomputeAll} className="btn btn-outline inline-flex items-center gap-2">
-              <RefreshCw className="w-4 h-4" />
-              Przelicz ELO
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Dodawanie turnieju */}
-      <div className="card">
-        <details open>
+        <details>
           <summary className="cursor-pointer font-semibold mb-2">Dodaj turniej</summary>
           <form onSubmit={addTurniej} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Nazwa" value={nazwa} onChange={setNazwa} />
@@ -915,13 +1055,9 @@ function TurniejeTab() {
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold">Twoje turnieje</h3>
-          {isLoadingList ? (
-            <span className="text-xs text-gray-500 inline-flex items-center gap-1">
-              <Loader2 className="w-3 h-3 animate-spin" /> Ładuję...
-            </span>
-          ) : (
-            <span className="text-xs text-gray-500">Kliknij nazwę, aby edytować</span>
-          )}
+          <button onClick={() => loadList()} className="btn btn-outline inline-flex items-center gap-2">
+            Odśwież
+          </button>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-gray-100">
@@ -1095,7 +1231,7 @@ function TurniejeTab() {
                   </Fragment>
                 );
               })}
-              {(!isLoadingList && list.length === 0) && (
+              {list.length === 0 && (
                 <tr>
                   <td colSpan={2} className="px-4 py-6 text-sm text-gray-600">
                     Brak turniejów. Dodaj pierwszy w sekcji powyżej.
@@ -1116,163 +1252,18 @@ function TurniejeTab() {
         />
       )}
       {addPartiaFor && (
-        <AddPartiaModal
+        <AddPartiaWizard
           open={!!addPartiaFor}
           onClose={() => setAddPartiaFor(null)}
           tournament={addPartiaFor}
-          onSaved={() => { /* po zapisie można odświeżyć listy jeśli chcesz */ }}
+          onSaved={() => {}}
         />
       )}
-    </>
-  );
-}
-
-/* ============================================================
-   Zakładka: Partie (lista z widoku wyniki_wide)
-   ============================================================ */
-function PartieTab() {
-  const [turnieje, setTurnieje] = useState<TurniejRow[]>([]);
-  const [turniejId, setTurniejId] = useState<string>(""); // filtr
-  const [rows, setRows] = useState<WynikWide[]>([]);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const PAGE_SIZE = 50;
-
-  useEffect(() => {
-    // załaduj listę turniejów do filtra
-    supabaseBrowser
-      .from("turniej")
-      .select("id,nazwa")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => setTurnieje((data as TurniejRow[]) || []));
-  }, []);
-
-  async function load(reset = false) {
-    setLoading(true);
-    const nextPage = reset ? 0 : page;
-    let q = supabaseBrowser
-      .from("wyniki_wide")
-      .select("*")
-      .order("timestamp", { ascending: false })
-      .order("numer_dodania", { ascending: false })
-      .range(nextPage * PAGE_SIZE, nextPage * PAGE_SIZE + PAGE_SIZE - 1);
-
-    if (turniejId) q = q.eq("turniej_id", turniejId);
-
-    const { data, error } = await q;
-    if (error) {
-      setLoading(false);
-      return;
-    }
-    const list = (data || []) as WynikWide[];
-    if (reset) {
-      setRows(list);
-      setPage(1);
-    } else {
-      setRows((prev) => [...prev, ...list]);
-      setPage(nextPage + 1);
-    }
-    setHasMore(list.length === PAGE_SIZE);
-    setLoading(false);
-  }
-
-  useEffect(() => {
-    load(true); // pierwszy raz i przy zmianie filtra
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turniejId]);
-
-  function renderPlayers(r: WynikWide) {
-    const P = [
-      { n: r.gracz_a, d: r.delta_a, w: r.zwyciezca_id && r.gracz_a ? r.delta_a != null && r.delta_a >= 0 : false },
-      { n: r.gracz_b, d: r.delta_b, w: r.zwyciezca_id && r.gracz_b ? r.delta_b != null && r.delta_b >= 0 : false },
-      { n: r.gracz_c, d: r.delta_c, w: r.zwyciezca_id && r.gracz_c ? r.delta_c != null && r.delta_c >= 0 : false },
-      { n: r.gracz_d, d: r.delta_d, w: r.zwyciezca_id && r.gracz_d ? r.delta_d != null && r.delta_d >= 0 : false },
-    ].filter((p) => p.n);
-    return (
-      <div className="flex flex-wrap gap-2">
-        {P.map((p, idx) => (
-          <span
-            key={idx}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${p.w ? "bg-green-50 border-green-200 text-green-700" : "bg-gray-50 border-gray-200 text-gray-700"}`}
-          >
-            {p.n}
-            {typeof p.d === "number" && (
-              <span className={p.d >= 0 ? "text-green-700" : "text-red-700"}>
-                ({p.d >= 0 ? "+" : ""}{p.d})
-              </span>
-            )}
-          </span>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid gap-4">
-      <div className="card">
-        <div className="flex items-center gap-3">
-          <label className="text-sm">
-            <span className="text-gray-600 mr-2">Turniej</span>
-            <select
-              value={turniejId}
-              onChange={(e) => setTurniejId(e.target.value)}
-              className="rounded-md border px-2 py-1"
-            >
-              <option value="">— wszystkie —</option>
-              {turnieje.map((t) => (
-                <option key={t.id} value={t.id}>{t.nazwa}</option>
-              ))}
-            </select>
-          </label>
-          <button onClick={() => load(true)} className="btn btn-outline inline-flex items-center gap-2">
-            <Loader2 className="w-4 h-4" /> Odśwież
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-3 py-2 w-[170px]">Czas</th>
-                <th className="text-left px-3 py-2">Turniej</th>
-                <th className="text-left px-3 py-2">Gracze (Δ)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.partia_id} className="border-t">
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {new Date(r.timestamp).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2">{r.turniej}</td>
-                  <td className="px-3 py-2">{renderPlayers(r)}</td>
-                </tr>
-              ))}
-              {rows.length === 0 && !loading && (
-                <tr><td colSpan={3} className="px-3 py-6 text-center text-gray-500">Brak danych</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="flex items-center justify-center py-3">
-          {hasMore ? (
-            <button disabled={loading} onClick={() => load(false)} className="btn btn-outline">
-              {loading ? "Ładowanie..." : "Załaduj więcej"}
-            </button>
-          ) : (
-            <span className="text-xs text-gray-500">{loading ? "Ładowanie..." : "To już wszystko"}</span>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
 
-/* ========== Pomocnicze ========== */
+/* ===== Małe komponenty ===== */
 function Field({
   label,
   value,
