@@ -613,3 +613,33 @@ $$;
 --    Po edycji public.elo_settings wykonaj:
 --    select public.elo_recompute_all();
 -- ============================================================
+
+
+
+dodane by bylo widac w rankingu ostatnia partia w jakim turnieju
+
+
+create or replace view public.gracz_last_game as
+select
+  x.gracz_id,
+  x.partia_id,
+  x.played_at,
+  x.turniej_id,
+  x.turniej
+from (
+  select
+    ee.gracz_id,
+    p.id  as partia_id,
+    p.played_at,
+    t.id  as turniej_id,
+    t.nazwa as turniej,
+    row_number() over (
+      partition by ee.gracz_id
+      order by p.played_at desc, p.numer_dodania desc
+    ) as rn
+  from public.elo_event ee
+  join public.partia p on p.id = ee.partia_id
+  join public.stolik s on s.id = p.stolik_id
+  join public.turniej t on t.id = s.turniej_id
+) x
+where x.rn = 1;
