@@ -15,10 +15,8 @@ import {
   Loader2,
   Plus,
   Swords,
-  ToggleRight,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
-/*import { normDb } from "@/lib/norm";*
 
 /* ===== Typy ===== */
 type TurniejRow = {
@@ -29,8 +27,8 @@ type TurniejRow = {
   arkusz_nazwa: string;
   kolumna_nazwisk: string;
   pierwszy_wiersz_z_nazwiskiem: number;
-  data_turnieju: string | null;     // YYYY-MM-DD
-  godzina_turnieju: string | null;  // HH:MM:SS
+  data_turnieju: string | null; // YYYY-MM-DD
+  godzina_turnieju: string | null; // HH:MM:SS
   lat: number | null;
   lng: number | null;
   created_at?: string;
@@ -95,71 +93,48 @@ function PlayersListModal({
   const [ok, setOk] = useState<string | null>(null);
 
   async function load() {
-  setLoading(true);
-  setErr(null);
-  setOk(null);
-  setRows([]);
-
-  const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
-  const j = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    setErr(j.error || "Nie udało się pobrać listy z arkusza");
-    setLoading(false);
-    return;
-  }
-
-  const names: string[] = (j.names || [])
-    .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
-    .filter(Boolean)
-    .slice(0, 1000);
-
-  if (names.length === 0) {
+    setLoading(true);
+    setErr(null);
+    setOk(null);
     setRows([]);
-    setLoading(false);
-    return;
-  }
 
-  // 🔴 KLUCZ: cała normalizacja po stronie Postgresa
-  const { data, error } = await supabaseBrowser
-    .rpc("gracz_exists_by_names", { _names: names });
-
-  if (error) {
-    setErr(error.message);
-    setLoading(false);
-    return;
-  }
-
-  const foundMap = new Map<string, boolean>();
-  for (const r of data || []) {
-    foundMap.set((r.input_name || "").replace(/\u00A0/g, " ").trim(), !!r.found);
-  }
-
-  setRows(names.map((name) => ({ name, exists: !!foundMap.get(name) })));
-  setLoading(false);
-}
- return;
+    const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      setErr(j.error || "Nie udało się pobrać listy z arkusza");
+      setLoading(false);
+      return;
     }
 
-    const norms = Array.from(new Set(names.map(normDb)));
-    const { data: found, error } = await supabaseBrowser
-      .from("gracz")
-      .select("fullname_norm")
-      .in("fullname_norm", norms);
+    const names: string[] = (j.names || [])
+      .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 1000);
 
+    if (names.length === 0) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
+
+    // 🔽 sprawdzenie istnienia po stronie bazy (diakrytyki obsłużone w SQL)
+    const { data, error } = await supabaseBrowser.rpc("gracz_exists_by_names", { _names: names });
     if (error) {
       setErr(error.message);
       setLoading(false);
       return;
     }
 
-    const foundSet = new Set((found || []).map((g: any) => g.fullname_norm));
-    setRows(names.map((name) => ({ name, exists: foundSet.has(normDb(name)) })));
+    const result = (data || []).map((r: any) => ({
+      name: r.input_name as string,
+      exists: !!r.found,
+    }));
+    setRows(result);
     setLoading(false);
   }
 
   useEffect(() => {
-    if (open) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (open) void load();
   }, [open, tournament.id]);
 
   async function addOne(i: number) {
@@ -300,7 +275,7 @@ function PlayersListModal({
                         <td className="px-3 py-2">
                           {!r.exists && (
                             <button
-                              onClick={() => addOne(i)}
+                              onClick={() => void addOne(i)}
                               disabled={addingIdx === i || addingAll}
                               className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50 disabled:opacity-60"
                               title="Dodaj tego gracza"
@@ -346,25 +321,22 @@ function PlayerSearch({
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-  if (timer.current) window.clearTimeout(timer.current);
-  if (!q.trim()) {
-    setList([]);
-    return;
-  }
-  timer.current = window.setTimeout(async () => {
-    // 🔴 Serwer normalizuje: gracz_search
-    const { data, error } = await supabaseBrowser
-      .rpc("gracz_search", { _q: q.trim(), _limit: 10 });
-
-    if (!error) {
-      const arr = (data || []) as Gracz[];
-      setList(arr.filter((g) => !excludeIds.includes(g.id)));
+    if (timer.current) window.clearTimeout(timer.current);
+    if (!q.trim()) {
+      setList([]);
+      return;
     }
-  }, 180);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [q, excludeIds.join(",")]);
-
+    timer.current = window.setTimeout(async () => {
+      // 🔽 server-side norma + ilike
+      const { data, error } = await supabaseBrowser.rpc("gracz_search", { _q: q.trim(), _limit: 10 });
+      if (!error) {
+        setList(((data || []) as Gracz[]).filter((g) => !excludeIds.includes(g.id)));
+      }
+    }, 180);
+    return () => {
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, [q, excludeIds.join(",")]);
 
   return (
     <div className="grid gap-1">
@@ -441,8 +413,8 @@ function AddPartiaWizard({
 
   // Krok 3: zwycięzcy / małe punkty
   const [modes, setModes] = useState<GameMode[]>([]);
-  const [winners, setWinners] = useState<string[]>([]); // dla trybu "winner"
-  const [smallMap, setSmallMap] = useState<Record<number, Record<string, string>>>({}); // gameIdx -> {playerId: "-10", ...}
+  const [winners, setWinners] = useState<string[]>([]);
+  const [smallMap, setSmallMap] = useState<Record<number, Record<string, string>>>({});
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -453,7 +425,10 @@ function AddPartiaWizard({
       setStep(1);
       setPlayersCount(4);
       setGamesCount(3);
-      setA(null); setB(null); setC(null); setD(null);
+      setA(null);
+      setB(null);
+      setC(null);
+      setD(null);
       setModes([]);
       setWinners([]);
       setSmallMap({});
@@ -464,9 +439,15 @@ function AddPartiaWizard({
 
   const lineup = useMemo(() => [A, B, C, D].filter(Boolean) as Gracz[], [A, B, C, D]);
   const lineupIds = useMemo(() => lineup.map((g) => g.id).slice(0, playersCount), [lineup, playersCount]);
-  const lineupLabels = useMemo(() => lineup.map((g) => `${g.imie} ${g.nazwisko}`).slice(0, playersCount), [lineup, playersCount]);
+  const lineupLabels = useMemo(
+    () => lineup.map((g) => `${g.imie} ${g.nazwisko}`).slice(0, playersCount),
+    [lineup, playersCount]
+  );
 
-  const selectedIds = useMemo(() => [A?.id, B?.id, C?.id, D?.id].filter(Boolean) as string[], [A?.id, B?.id, C?.id, D?.id]);
+  const selectedIds = useMemo(
+    () => [A?.id, B?.id, C?.id, D?.id].filter(Boolean) as string[],
+    [A?.id, B?.id, C?.id, D?.id]
+  );
 
   const lineupOk = useMemo(() => lineupIds.length === playersCount, [lineupIds.length, playersCount]);
 
@@ -501,7 +482,7 @@ function AddPartiaWizard({
     if (x == null) return NaN;
     const n = Number(String(x).replace(",", "."));
     return Number.isFinite(n) ? n : NaN;
-    }
+  }
 
   async function saveAll() {
     setErr(null);
@@ -515,11 +496,13 @@ function AddPartiaWizard({
           return;
         }
       } else {
-        // small-points: muszą być ujemne dla dokładnie (playersCount-1) graczy, a zwycięzca bez wartości lub 0
+        // ujemne dla przegranych, zwycięzca puste/0
         const vals = lineupIds.map((pid) => parseNum(smallMap[i]?.[pid]));
         const negIdx = vals.map((v, idx) => (v < 0 ? idx : -1)).filter((k) => k >= 0);
         if (negIdx.length !== playersCount - 1) {
-          setErr(`W partii ${i + 1} podaj ujemne małe punkty dla wszystkich przegranych (dokładnie ${playersCount - 1} wartości). Zwycięzca puste lub 0.`);
+          setErr(
+            `W partii ${i + 1} podaj ujemne małe punkty dla wszystkich przegranych (dokładnie ${playersCount - 1}).`
+          );
           return;
         }
       }
@@ -544,43 +527,29 @@ function AddPartiaWizard({
         let losersRows: { partia_id: string; gracz_id: string; punkty: number }[] = [];
 
         if (mode === "winner") {
-          // zwycięzca z radia
           winnerId = winners[i];
         } else {
-          // wylicz zwycięzcę z małych punktów: ujemne dla przegranych, zwycięzca brak/0
           const vals = lineupIds.map((pid) => parseNum(smallMap[i]?.[pid]));
           const losers: { pid: string; mp: number }[] = [];
           let winnerIdx: number | null = null;
           for (let j = 0; j < lineupIds.length; j++) {
             const v = vals[j];
             if (Number.isNaN(v) || v === 0) {
-              // kandydat na zwycięzcę
               if (winnerIdx === null) winnerIdx = j;
-              else {
-                // więcej niż jeden „nieujemny” => niejednoznaczność
-                throw new Error(`W partii ${i + 1} jest więcej niż jeden gracz bez ujemnych małych punktów. Zostaw puste/0 tylko zwycięzcy.`);
-              }
+              else throw new Error(`W partii ${i + 1} jest więcej niż jeden gracz bez ujemnych wartości.`);
             } else if (v < 0) {
               losers.push({ pid: lineupIds[j], mp: v });
             } else {
-              // dodatnie nie są dozwolone w wejściu
-              throw new Error(`W partii ${i + 1} wpisz u przegranych wartości ujemne (np. -10). Dodatnie nie są dozwolone.`);
+              throw new Error(`W partii ${i + 1} u przegranych wpisz wartości ujemne (np. -10).`);
             }
           }
-          if (winnerIdx === null) {
-            throw new Error(`W partii ${i + 1} nie wybrano zwycięzcy (zostaw puste/0 u jednego gracza).`);
-          }
-          if (losers.length !== playersCount - 1) {
+          if (winnerIdx === null) throw new Error(`W partii ${i + 1} nie wybrano zwycięzcy.`);
+          if (losers.length !== playersCount - 1)
             throw new Error(`W partii ${i + 1} liczba przegranych różna od ${playersCount - 1}.`);
-          }
           winnerId = lineupIds[winnerIdx];
-
-          // losers -> partia_male
-          // (w bazie zwycięzca dostanie sumę na plus w widoku; tu zapisujemy tylko ujemne przegranych)
           losersRows = losers.map((L) => ({ partia_id: "", gracz_id: L.pid, punkty: L.mp }));
         }
 
-        // utwórz partia
         const { data: p, error: pErr } = await supabaseBrowser
           .from("partia")
           .insert({
@@ -594,9 +563,7 @@ function AddPartiaWizard({
         if (pErr || !p?.id) throw new Error(pErr?.message || "Błąd tworzenia partii");
         createdPartie.push(p.id);
 
-        // partia_male
         if (mode === "winner") {
-          // placeholder -1 dla przegranych
           const losers = lineupIds.filter((id) => id !== winnerId);
           if (losers.length) {
             const rows = losers.map((id) => ({ partia_id: p.id, gracz_id: id, punkty: -1 }));
@@ -623,9 +590,7 @@ function AddPartiaWizard({
           .from("wyniki_rows")
           .select("partia_id,gracz,elo_delta,wygral")
           .eq("partia_id", pid);
-        if (!error) {
-          summaries.push({ partia_id: pid, rows: (data || []) as WynikRow[] });
-        }
+        if (!error) summaries.push({ partia_id: pid, rows: (data || []) as WynikRow[] });
       }
       setSummary(summaries);
       onSaved();
@@ -646,13 +611,18 @@ function AddPartiaWizard({
             <Swords className="w-4 h-4" />
             Dodaj partię — {tournament.nazwa}
           </div>
-          <button onClick={onClose} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50">
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+          >
             <X className="w-4 h-4" /> Zamknij
           </button>
         </div>
 
         <div className="p-4 grid gap-4">
-          {err && <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>}
+          {err && (
+            <div className="rounded-lg border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm">{err}</div>
+          )}
 
           {summary ? (
             <>
@@ -663,17 +633,23 @@ function AddPartiaWizard({
                     <div className="text-xs text-gray-500 mb-1">Partia {idx + 1}</div>
                     <div className="flex flex-wrap gap-2">
                       {s.rows
-                        .sort((a, b) => Number(b.wygral) - Number(a.wygral) || a.gracz.localeCompare(b.gracz, "pl"))
+                        .sort(
+                          (a, b) =>
+                            Number(b.wygral) - Number(a.wygral) || a.gracz.localeCompare(b.gracz, "pl")
+                        )
                         .map((r, i) => (
                           <span
                             key={i}
                             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${
-                              r.wygral ? "bg-green-50 border-green-200 text-green-700" : "bg-gray-50 border-gray-200 text-gray-700"
+                              r.wygral
+                                ? "bg-green-50 border-green-200 text-green-700"
+                                : "bg-gray-50 border-gray-200 text-gray-700"
                             }`}
                           >
                             {r.gracz}
                             <span className={r.elo_delta >= 0 ? "text-green-700" : "text-red-700"}>
-                              ({r.elo_delta >= 0 ? "+" : ""}{r.elo_delta})
+                              ({r.elo_delta >= 0 ? "+" : ""}
+                              {r.elo_delta})
                             </span>
                           </span>
                         ))}
@@ -688,7 +664,10 @@ function AddPartiaWizard({
                   onClick={() => {
                     setSummary(null);
                     setStep(1);
-                    setA(null); setB(null); setC(null); setD(null);
+                    setA(null);
+                    setB(null);
+                    setC(null);
+                    setD(null);
                     setWinners([]);
                     setSmallMap({});
                     setModes([]);
@@ -696,7 +675,9 @@ function AddPartiaWizard({
                 >
                   Wprowadź kolejny stolik
                 </button>
-                <button className="btn btn-ghost" onClick={onClose}>Zamknij</button>
+                <button className="btn btn-ghost" onClick={onClose}>
+                  Zamknij
+                </button>
               </div>
             </>
           ) : (
@@ -734,30 +715,48 @@ function AddPartiaWizard({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button className="btn btn-primary" onClick={() => setStep(2)}>Dalej</button>
-                    <button className="btn btn-ghost" onClick={onClose}>Anuluj</button>
+                    <button className="btn btn-primary" onClick={() => setStep(2)}>
+                      Dalej
+                    </button>
+                    <button className="btn btn-ghost" onClick={onClose}>
+                      Anuluj
+                    </button>
                   </div>
                 </div>
               )}
 
               {step === 2 && (
                 <div className="grid gap-4">
-                  <div className="text-sm">Wybierz skład (A–D). Po wybraniu gracza nie pojawia się on w kolejnych polach.</div>
+                  <div className="text-sm">
+                    Wybierz skład (A–D). Po wybraniu gracza nie pojawia się on w kolejnych polach.
+                  </div>
                   <PlayerSearch label="Gracz A" value={A} onSelect={setA} excludeIds={selectedIds} />
-                  {playersCount >= 2 && <PlayerSearch label="Gracz B" value={B} onSelect={setB} excludeIds={selectedIds} />}
-                  {playersCount >= 3 && <PlayerSearch label="Gracz C" value={C} onSelect={setC} excludeIds={selectedIds} />}
-                  {playersCount >= 4 && <PlayerSearch label="Gracz D" value={D} onSelect={setD} excludeIds={selectedIds} />}
+                  {playersCount >= 2 && (
+                    <PlayerSearch label="Gracz B" value={B} onSelect={setB} excludeIds={selectedIds} />
+                  )}
+                  {playersCount >= 3 && (
+                    <PlayerSearch label="Gracz C" value={C} onSelect={setC} excludeIds={selectedIds} />
+                  )}
+                  {playersCount >= 4 && (
+                    <PlayerSearch label="Gracz D" value={D} onSelect={setD} excludeIds={selectedIds} />
+                  )}
 
                   <div className="flex items-center gap-2">
-                    <button className="btn btn-ghost" onClick={() => setStep(1)}>Wstecz</button>
-                    <button className="btn btn-primary" onClick={proceedToWinners}>Zatwierdź skład</button>
+                    <button className="btn btn-ghost" onClick={() => setStep(1)}>
+                      Wstecz
+                    </button>
+                    <button className="btn btn-primary" onClick={proceedToWinners}>
+                      Zatwierdź skład
+                    </button>
                   </div>
                 </div>
               )}
 
               {step === 3 && (
                 <div className="grid gap-4">
-                  <div className="text-sm">Dla każdej partii wybierz tryb: <b>Zwycięzca</b> albo <b>Małe punkty</b>.</div>
+                  <div className="text-sm">
+                    Dla każdej partii wybierz tryb: <b>Zwycięzca</b> albo <b>Małe punkty</b>.
+                  </div>
 
                   {Array.from({ length: gamesCount }).map((_, idx) => {
                     const mode = modes[idx] || "winner";
@@ -830,8 +829,10 @@ function AddPartiaWizard({
                   })}
 
                   <div className="flex items-center gap-2">
-                    <button className="btn btn-ghost" onClick={() => setStep(2)}>Wstecz</button>
-                    <button className="btn btn-primary" disabled={saving} onClick={saveAll}>
+                    <button className="btn btn-ghost" onClick={() => setStep(2)}>
+                      Wstecz
+                    </button>
+                    <button className="btn btn-primary" disabled={saving} onClick={() => void saveAll()}>
                       {saving ? "Zapisywanie…" : "Zapisz partie"}
                     </button>
                   </div>
@@ -887,7 +888,9 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     if (error) setErr(error.message);
     else setList((data || []) as TurniejRow[]);
   }
-  useEffect(() => { loadList(); }, []);
+  useEffect(() => {
+    void loadList();
+  }, []);
 
   async function addTurniej(e: React.FormEvent) {
     e.preventDefault();
@@ -922,10 +925,15 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     }
 
     setOk("Dodano turniej.");
-    setNazwa(""); setGsheetUrl(""); setArkuszNazwa("Gracze");
-    setKolumnaNazwisk("B"); setPierwszyWiersz(2);
-    setDataTurnieju(""); setGodzinaTurnieju("");
-    setLat(""); setLng("");
+    setNazwa("");
+    setGsheetUrl("");
+    setArkuszNazwa("Gracze");
+    setKolumnaNazwisk("B");
+    setPierwszyWiersz(2);
+    setDataTurnieju("");
+    setGodzinaTurnieju("");
+    setLat("");
+    setLng("");
     await loadList();
   }
 
@@ -959,12 +967,12 @@ export default function AdminShell({ email, role }: { email: string; role: strin
     if ("gsheet_id" in editRow) body.gsheet_id = editRow.gsheet_id ?? null;
     if (!body.gsheet_id && body.gsheet_url) body.gsheet_id = extractIdFromUrl(body.gsheet_url);
     if ("arkusz_nazwa" in editRow) body.arkusz_nazwa = (editRow.arkusz_nazwa || "").trim();
-    if ("kolumna_nazwisk" in editRow) body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
+    if ("kolumna_nazwisk" in editRow)
+      body.kolumna_nazwisk = (editRow.kolumna_nazwisk || "").toUpperCase().trim();
     if ("pierwszy_wiersz_z_nazwiskiem" in editRow)
       body.pierwszy_wiersz_z_nazwiskiem = Number(editRow.pierwszy_wiersz_z_nazwiskiem || 2);
 
-    if ("data_turnieju" in editRow)
-      body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
+    if ("data_turnieju" in editRow) body.data_turnieju = editRow.data_turnieju === "" ? null : editRow.data_turnieju;
     if ("godzina_turnieju" in editRow)
       body.godzina_turnieju = editRow.godzina_turnieju === "" ? null : editRow.godzina_turnieju;
 
@@ -1028,7 +1036,12 @@ export default function AdminShell({ email, role }: { email: string; role: strin
               onChange={(v) => setPierwszyWiersz(parseInt(v || "1", 10))}
             />
             <Field label="Data turnieju" type="date" value={dataTurnieju} onChange={setDataTurnieju} />
-            <Field label="Godzina rozpoczęcia" type="time" value={godzinaTurnieju} onChange={setGodzinaTurnieju} />
+            <Field
+              label="Godzina rozpoczęcia"
+              type="time"
+              value={godzinaTurnieju}
+              onChange={setGodzinaTurnieju}
+            />
 
             {/* Miejsce */}
             <div className="md:col-span-2">
@@ -1077,7 +1090,7 @@ export default function AdminShell({ email, role }: { email: string; role: strin
       <div className="card">
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold">Twoje turnieje</h3>
-          <button onClick={() => loadList()} className="btn btn-outline inline-flex items-center gap-2">
+          <button onClick={() => void loadList()} className="btn btn-outline inline-flex items-center gap-2">
             Odśwież
           </button>
         </div>
@@ -1097,12 +1110,18 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                 const timePart = toTimeInput(t.godzina_turnieju);
                 const hasGeo = typeof t.lat === "number" && typeof t.lng === "number";
 
-                const latPreview = editRow.id === t.id && editRow.lat !== undefined
-                  ? (editRow.lat === "" ? null : Number(editRow.lat))
-                  : t.lat;
-                const lngPreview = editRow.id === t.id && editRow.lng !== undefined
-                  ? (editRow.lng === "" ? null : Number(editRow.lng))
-                  : t.lng;
+                const latPreview =
+                  editRow.id === t.id && editRow.lat !== undefined
+                    ? editRow.lat === ""
+                      ? null
+                      : Number(editRow.lat)
+                    : t.lat;
+                const lngPreview =
+                  editRow.id === t.id && editRow.lng !== undefined
+                    ? editRow.lng === ""
+                      ? null
+                      : Number(editRow.lng)
+                    : t.lng;
 
                 return (
                   <Fragment key={t.id}>
@@ -1159,32 +1178,78 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                         <td colSpan={2} className="p-0">
                           <div className="px-4 py-4 bg-white">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <Field label="Nazwa" value={String(editRow.nazwa ?? "")} onChange={(v) => setEditRow(s => ({ ...s, nazwa: v }))} />
-                              <Field label="Arkusz (nazwa karty)" value={String(editRow.arkusz_nazwa ?? "")} onChange={(v) => setEditRow(s => ({ ...s, arkusz_nazwa: v }))} />
-                              <Field label="Kolumna z nazwiskami" value={String(editRow.kolumna_nazwisk ?? "")} onChange={(v) => setEditRow(s => ({ ...s, kolumna_nazwisk: v.toUpperCase() }))} />
-                              <Field label="Pierwszy wiersz z nazwiskiem" type="number" value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")} onChange={(v) => setEditRow(s => ({ ...s, pierwszy_wiersz_z_nazwiskiem: v }))} />
+                              <Field
+                                label="Nazwa"
+                                value={String(editRow.nazwa ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, nazwa: v }))}
+                              />
+                              <Field
+                                label="Arkusz (nazwa karty)"
+                                value={String(editRow.arkusz_nazwa ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, arkusz_nazwa: v }))}
+                              />
+                              <Field
+                                label="Kolumna z nazwiskami"
+                                value={String(editRow.kolumna_nazwisk ?? "")}
+                                onChange={(v) =>
+                                  setEditRow((s) => ({ ...s, kolumna_nazwisk: v.toUpperCase() }))
+                                }
+                              />
+                              <Field
+                                label="Pierwszy wiersz z nazwiskiem"
+                                type="number"
+                                value={String(editRow.pierwszy_wiersz_z_nazwiskiem ?? "2")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, pierwszy_wiersz_z_nazwiskiem: v }))}
+                              />
                               <Field
                                 label="Link do Google Sheets"
                                 value={String(editRow.gsheet_url ?? "")}
-                                onChange={(v) => setEditRow((s) => ({ ...s, gsheet_url: v, gsheet_id: extractIdFromUrl(v) || null }))}
+                                onChange={(v) =>
+                                  setEditRow((s) => ({
+                                    ...s,
+                                    gsheet_url: v,
+                                    gsheet_id: extractIdFromUrl(v) || null,
+                                  }))
+                                }
                                 className="md:col-span-2"
                               />
-                              <Field label="Data turnieju" type="date" value={String(editRow.data_turnieju ?? "")} onChange={(v) => setEditRow(s => ({ ...s, data_turnieju: v || null }))} />
-                              <Field label="Godzina rozpoczęcia" type="time" value={String(editRow.godzina_turnieju ?? "")} onChange={(v) => setEditRow(s => ({ ...s, godzina_turnieju: v || null }))} />
+                              <Field
+                                label="Data turnieju"
+                                type="date"
+                                value={String(editRow.data_turnieju ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, data_turnieju: v || null }))}
+                              />
+                              <Field
+                                label="Godzina rozpoczęcia"
+                                type="time"
+                                value={String(editRow.godzina_turnieju ?? "")}
+                                onChange={(v) => setEditRow((s) => ({ ...s, godzina_turnieju: v || null }))}
+                              />
 
                               <div className="md:col-span-2">
                                 <div className="flex flex-wrap items-center gap-3">
-                                  <button type="button" className="btn btn-outline" onClick={(e) => { e.stopPropagation(); setPickerEditOpenId(t.id); }}>
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPickerEditOpenId(t.id);
+                                    }}
+                                  >
                                     Ustaw miejsce
                                   </button>
 
-                                  {(editRow.id === t.id ? (editRow.lat && editRow.lng) : (t.lat != null && t.lng != null)) ? (
+                                  {(editRow.id === t.id ? editRow.lat && editRow.lng : t.lat != null && t.lng != null) ? (
                                     <span className="text-sm text-gray-700">
                                       Wybrano:{" "}
                                       <b>
-                                        {(editRow.id === t.id && editRow.lat) ? Number(editRow.lat).toFixed(6) : (t.lat ?? 0).toFixed(6)}
+                                        {editRow.id === t.id && editRow.lat
+                                          ? Number(editRow.lat).toFixed(6)
+                                          : (t.lat ?? 0).toFixed(6)}
                                         ,{" "}
-                                        {(editRow.id === t.id && editRow.lng) ? Number(editRow.lng).toFixed(6) : (t.lng ?? 0).toFixed(6)}
+                                        {editRow.id === t.id && editRow.lng
+                                          ? Number(editRow.lng).toFixed(6)
+                                          : (t.lng ?? 0).toFixed(6)}
                                       </b>
                                     </span>
                                   ) : (
@@ -1192,16 +1257,37 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                                   )}
 
                                   {(editRow.lat || editRow.lng) && (
-                                    <button type="button" className="btn btn-ghost" onClick={(e) => { e.stopPropagation(); setEditRow((s) => ({ ...s, lat: "", lng: "" })); }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditRow((s) => ({ ...s, lat: "", lng: "" }));
+                                      }}
+                                    >
                                       Wyczyść
                                     </button>
                                   )}
 
                                   <div className="ml-auto flex gap-2">
-                                    <button type="button" className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50" onClick={(e) => { e.stopPropagation(); setPlayersModalFor(t); }}>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setPlayersModalFor(t);
+                                      }}
+                                    >
                                       <Users className="w-4 h-4" /> Lista grających
                                     </button>
-                                    <button type="button" className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50" onClick={(e) => { e.stopPropagation(); setAddPartiaFor(t); }}>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAddPartiaFor(t);
+                                      }}
+                                    >
                                       <Swords className="w-4 h-4" /> Dodaj partię
                                     </button>
                                   </div>
@@ -1209,23 +1295,56 @@ export default function AdminShell({ email, role }: { email: string; role: strin
 
                                 <MapPicker
                                   open={pickerEditOpenId === t.id}
-                                  initialLat={(editRow.lat && editRow.lat !== "") ? Number(editRow.lat) : (typeof t.lat === "number" ? t.lat : null)}
-                                  initialLng={(editRow.lng && editRow.lng !== "") ? Number(editRow.lng) : (typeof t.lng === "number" ? t.lng : null)}
+                                  initialLat={
+                                    editRow.lat && editRow.lat !== ""
+                                      ? Number(editRow.lat)
+                                      : typeof t.lat === "number"
+                                      ? t.lat
+                                      : null
+                                  }
+                                  initialLng={
+                                    editRow.lng && editRow.lng !== ""
+                                      ? Number(editRow.lng)
+                                      : typeof t.lng === "number"
+                                      ? t.lng
+                                      : null
+                                  }
                                   onClose={() => setPickerEditOpenId(null)}
-                                  onPick={(la, lo) => { setEditRow((s) => ({ ...s, lat: String(la), lng: String(lo) })); setPickerEditOpenId(null); }}
+                                  onPick={(la, lo) => {
+                                    setEditRow((s) => ({ ...s, lat: String(la), lng: String(lo) }));
+                                    setPickerEditOpenId(null);
+                                  }}
                                   title="Ustaw miejsce turnieju"
                                 />
                               </div>
                             </div>
 
                             <div className="mt-4 flex flex-wrap gap-2">
-                              <button onClick={(e) => { e.stopPropagation(); saveEdit(t.id); }} className="btn btn-primary inline-flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void saveEdit(t.id);
+                                }}
+                                className="btn btn-primary inline-flex items-center gap-2"
+                              >
                                 <Save className="w-4 h-4" /> Zapisz zmiany
                               </button>
-                              <button onClick={(e) => { e.stopPropagation(); setExpandedId(null); }} className="btn btn-ghost inline-flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedId(null);
+                                }}
+                                className="btn btn-ghost inline-flex items-center gap-2"
+                              >
                                 <X className="w-4 h-4" /> Zamknij
                               </button>
-                              <button onClick={(e) => { e.stopPropagation(); setConfirmDel(t.id); }} className="btn btn-danger inline-flex items-center gap-2 ml-auto">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDel(t.id);
+                                }}
+                                className="btn btn-danger inline-flex items-center gap-2 ml-auto"
+                              >
                                 <Trash2 className="w-4 h-4" /> Usuń
                               </button>
                             </div>
@@ -1234,8 +1353,12 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                               <div className="mt-3 rounded-lg border border-red-200 bg-red-50 text-red-700 p-3">
                                 Usunąć ten turniej? Tej operacji nie można cofnąć.
                                 <div className="mt-2 flex gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); doDelete(t.id); }} className="btn btn-danger">Usuń</button>
-                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDel(null); }} className="btn btn-ghost">Anuluj</button>
+                                  <button onClick={() => void doDelete(t.id)} className="btn btn-danger">
+                                    Usuń
+                                  </button>
+                                  <button onClick={() => setConfirmDel(null)} className="btn btn-ghost">
+                                    Anuluj
+                                  </button>
                                 </div>
                               </div>
                             )}
