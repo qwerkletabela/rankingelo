@@ -5,7 +5,7 @@
 /* Kolory do gradientu */
 :root {
   --page-grad-from: 248 20% 98%;
-  --page-grad-mid: 350 100% 98%;
+  --page-grad-mid: 0 90% 97%;
   --page-grad-to: 0 85% 96%;
 }
 
