@@ -96,14 +96,14 @@ export default function RankingPage() {
   }, [q, rows]);
 
   return (
-    <main className="bg-gradient-to-b from-gray-50 to-white min-h-[calc(100vh-56px)]">
+    <main className="bg-gradient-to-b from-gray-200 to-white min-h-[calc(100vh-56px)]">
       <div className="max-w-6xl mx-auto px-4 -mt-12 pb-10">
         <div className="pt-6 mb-5">
           <div className="flex items-end justify-between gap-3">
             <div>
               <h1 className="text-2xl font-semibold">Ranking ELO</h1>
               <p className="text-sm text-gray-600">
-                Aktualny ranking graczy (na widoku zaokrąglony do całości).
+                Aktualny ranking graczy.
               </p>
             </div>
             <div className="w-full max-w-[320px]">
@@ -185,7 +185,7 @@ export default function RankingPage() {
         </div>
 
         <p className="mt-2 text-xs text-gray-500">
-          ELO w bazie: dokładność do 4 miejsc po przecinku; tutaj prezentowane jako liczby całkowite.
+          -
         </p>
       </div>
     </main>
