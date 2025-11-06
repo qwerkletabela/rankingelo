@@ -16,7 +16,10 @@ body {
     radial-gradient(1000px 500px at 100% 0%, hsl(var(--page-grad-to)) 0%, transparent 55%),
     linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
 }
-
+@layer base {
+  html { @apply bg-rose-50; }
+  body { background-color: transparent; }
+}
 /* Karty */
 .card { @apply bg-white/95 backdrop-blur-sm rounded-2xl shadow-soft p-6 border border-white/60; }
 .card-title { @apply text-xs uppercase tracking-wide text-gray-500; }
