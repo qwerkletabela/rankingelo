@@ -682,3 +682,76 @@ language sql stable as $$
   where g.fullname_norm = public.norm_txt(_name)
   limit 1;
 $$;
+
+
+
+
+
+
+-- ==== helpery (jeśli już masz, to i tak są "create or replace") ====
+create extension if not exists unaccent;
+create extension if not exists pgcrypto;
+
+create or replace function public.immutable_unaccent(text)
+returns text language sql immutable as $$
+  select public.unaccent('public.unaccent', $1)
+$$;
+
+create or replace function public.norm_txt(s text)
+returns text language sql immutable as $$
+  select regexp_replace(
+           lower(public.immutable_unaccent(coalesce(s,''))),
+           '\s+', ' ', 'g'
+         )
+$$;
+
+-- ==== sprawdzanie istnienia wielu imion+nazwisk naraz ====
+-- (używane przez modal "Lista grających")
+create or replace function public.gracz_exists_by_names(_names text[])
+returns table(
+  input_name text,
+  normalized text,
+  gracz_id uuid,
+  found boolean,
+  imie text,
+  nazwisko text
+) language sql stable as $$
+with s as (
+  select unnest(_names) as input_name
+)
+select
+  s.input_name,
+  public.norm_txt(s.input_name) as normalized,
+  g.id as gracz_id,
+  (g.id is not null) as found,
+  g.imie, g.nazwisko
+from s
+left join public.gracz g
+  on g.fullname_norm = public.norm_txt(s.input_name)
+$$;
+
+-- ==== pobranie gracza po "raw" imię+nazwisko ====
+-- (używane przez /api/gracze: najpierw sprawdź, czy już jest)
+create or replace function public.gracz_get_by_name(_name text)
+returns public.gracz
+language sql stable as $$
+  select g.* from public.gracz g
+  where g.fullname_norm = public.norm_txt(_name)
+  limit 1;
+$$;
+
+-- ==== wyszukiwarka dla auto-complete (PlayerSearch) ====
+create or replace function public.gracz_search(_q text, _limit int default 10)
+returns table(
+  id uuid,
+  imie text,
+  nazwisko text,
+  ranking numeric,
+  fullname_norm text
+) language sql stable as $$
+  select g.id, g.imie, g.nazwisko, g.ranking, g.fullname_norm
+  from public.gracz g
+  where g.fullname_norm ilike '%' || public.norm_txt(_q) || '%'
+  order by g.nazwisko, g.imie
+  limit _limit
+$$;
