@@ -6,7 +6,7 @@
 /* === Globalne TŁO: jasnoczerwone (rose-50) === */
 @layer base {
   html, body {
-    @apply min-h-screen bg-rose-50 text-gray-900;
+    @apply min-h-screen bg-rose-200 text-gray-900;
     /* Fallback na wypadek wyłączenia Tailwinda: */
     background-color: #c13942; /* rose-50 */
   }
