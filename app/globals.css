@@ -2,57 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Tło: delikatny czerwony gradient */
+/* Kolory do gradientu */
 :root {
   --page-grad-from: 248 20% 98%;
   --page-grad-mid: 350 100% 98%;
   --page-grad-to: 0 85% 96%;
 }
-html, body { height: 100%; }
-body {
-  @apply min-h-screen text-gray-900;
-  background:
-    radial-gradient(1200px 600px at 20% -10%, hsl(var(--page-grad-mid)) 0%, transparent 60%),
-    radial-gradient(1000px 500px at 100% 0%, hsl(var(--page-grad-to)) 0%, transparent 55%),
-    linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
-}
+
+/* Daj gradient NA html (nie na body) */
 @layer base {
-  html { @apply bg-rose-200; }
-  body { background-color: transparent; }
+  html {
+    min-height: 100%;
+    /* tło globalne – delikatny czerwony */
+    background:
+      radial-gradient(1200px 600px at 20% -10%, hsl(var(--page-grad-mid)) 0%, transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, hsl(var(--page-grad-to)) 0%, transparent 55%),
+      linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
+    /* opcjonalnie, by tło nie „jechało” przy scrollu */
+    background-attachment: fixed;
+  }
+  /* body ma być przezroczyste, żeby było widać html */
+  body {
+    @apply min-h-screen text-gray-900;
+    background: transparent;
+  }
 }
-/* Karty */
+
+/* Karty i reszta — możesz zostawić jak masz */
 .card { @apply bg-white/95 backdrop-blur-sm rounded-2xl shadow-soft p-6 border border-white/60; }
-.card-title { @apply text-xs uppercase tracking-wide text-gray-500; }
-.card-value { @apply text-2xl font-semibold; }
-
-/* Tabela */
-.table { @apply w-full text-sm; }
-.table th { @apply text-left text-gray-500 font-medium pb-2; }
-.table td { @apply py-2; }
-
-.badge-elo-lt1400 { background:#6B7280; border:1px solid #9CA3AF; color:#fff; }
-.badge-elo-1400   { background:#EA580C; border:1px solid #C2410C; color:#fff; }
-.badge-elo-1800   { background:#2563EB; border:1px solid #1D4ED8; color:#fff; }
-.badge-elo-2000   { background:#9333EA; border:1px solid #7E22CE; color:#fff; }
-.badge-elo-2200   { background:#059669; border:1px solid #047857; color:#fff; }
-
-
-/* Przyciski */
-.btn { @apply inline-flex items-center justify-center rounded-lg px-4 py-2 font-medium; }
-.btn-primary { @apply bg-brand-700 text-white hover:bg-brand-800 active:bg-brand-900; }
-.btn-ghost { @apply bg-white/70 text-gray-800 hover:bg-white; }
-.btn-outline { @apply bg-white text-gray-800 border border-gray-300 hover:bg-gray-50; }
-.btn-danger { @apply bg-red-600 text-white hover:bg-red-700 active:bg-red-800; }
-
-
-/* Link w nawigacji */
-.nav-link { @apply text-sm text-white/90 hover:text-white transition-colors; }
-.nav-link-active { @apply text-white; }
-
-/* Pasek nawigacji (sticky) – gradient czerwony */
-.navbar {
-  @apply sticky top-0 z-30 backdrop-blur border-b;
-  background: linear-gradient(180deg, rgba(185, 28, 28, 0.95), rgba(185, 28, 28, 0.92));
-  border-color: rgba(255,255,255,0.15);
-}
-
+/* ...reszta Twoich styli bez zmian... */
