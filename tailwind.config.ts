@@ -1,3 +1,4 @@
+// tailwind.config.ts
 import type { Config } from "tailwindcss";
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
@@ -12,17 +13,13 @@ const config: Config = {
           400: "#fb7185",
           500: "#ef4444",
           600: "#dc2626",
-          700: "#b91c1c",  // Rummikub red
+          700: "#b91c1c",
           800: "#991b1b",
           900: "#7f1d1d",
         },
       },
-      boxShadow: {
-        soft: "0 6px 30px rgba(0,0,0,0.10)",
-      },
-      borderRadius: {
-        "2xl": "1rem",
-      },
+      boxShadow: { soft: "0 6px 30px rgba(0,0,0,0.10)" },
+      borderRadius: { "2xl": "1rem" },
     },
   },
   plugins: [],
