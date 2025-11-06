@@ -1,3 +1,4 @@
+// app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
@@ -14,10 +15,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pl">
-      <body className={inter.className}>
-        {/* 1) ZAWSZE na górze */}
+      <body className={`${inter.className} bg-rose-50 min-h-screen`}>
         <NavBar />
-        {/* 2) Odstęp równy wysokości paska (h-14 ≈ 56px); dałem lekki zapas na desktopie */}
         <div className="pt-14 md:pt-16">
           {children}
         </div>
