@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import NavBar from "@/components/NavBar";
-import Hero from "@/components/Hero";
+//import Hero from "@/components/Hero";
 import "leaflet/dist/leaflet.css";
 
 
@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 1) ZAWSZE na górze */}
         <NavBar />
         {/* 2) Hero pod spodem; ukryje się automatycznie na /admin, /login, /register */}
-        <Hero mode="auto" />
+        //<Hero mode="auto" />
         {/* 3) Dopiero treść strony */}
         {children}
       </body>
