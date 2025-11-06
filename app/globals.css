@@ -17,7 +17,7 @@ body {
     linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
 }
 @layer base {
-  html { @apply bg-rose-50; }
+  html { @apply bg-rose-200; }
   body { background-color: transparent; }
 }
 /* Karty */
