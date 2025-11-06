@@ -1169,6 +1169,15 @@ export default function AdminShell({ email, role }: { email: string; role: strin
                             <Swords className="w-3.5 h-3.5" />
                             Dodaj partię
                           </button>
+                          <a
+  href={`/admin/turnieje/${t.id}`}
+  onClick={(e) => e.stopPropagation()}
+  className="ml-2 inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md border border-gray-200 hover:bg-gray-50"
+  title="Szczegóły i partie"
+>
+  Szczegóły
+</a>
+
                         </span>
                       </td>
                     </tr>
