@@ -14,10 +14,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pl">
-      <body className={`${inter.className} bg-rose-100 min-h-screen`}>
+    <html lang="pl" className="bg-rose-50">  {/* globalne tło */}
+      <body className={`${inter.className} min-h-screen antialiased`}>
         <NavBar />
-        <div className="pt-14 md:pt-16">
+        <div className="pt-14 md:pt-16">   {/* odstęp pod navbar */}
           {children}
         </div>
       </body>
