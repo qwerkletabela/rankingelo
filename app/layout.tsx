@@ -20,7 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 1) ZAWSZE na górze */}
         <NavBar />
         {/* 2) Hero pod spodem; ukryje się automatycznie na /admin, /login, /register */}
-        //<Hero mode="auto" />
+        {/*<Hero mode="auto" />*/}
         {/* 3) Dopiero treść strony */}
         {children}
       </body>
