@@ -18,7 +18,7 @@ import {
   ToggleRight,
 } from "lucide-react";
 import MapPicker from "@/components/MapPicker";
-import { normDb } from "@/lib/norm";
+/*import { normDb } from "@/lib/norm";*
 
 /* ===== Typy ===== */
 type TurniejRow = {
@@ -95,28 +95,49 @@ function PlayersListModal({
   const [ok, setOk] = useState<string | null>(null);
 
   async function load() {
-    setLoading(true);
-    setErr(null);
-    setOk(null);
+  setLoading(true);
+  setErr(null);
+  setOk(null);
+  setRows([]);
+
+  const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
+  const j = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    setErr(j.error || "Nie udało się pobrać listy z arkusza");
+    setLoading(false);
+    return;
+  }
+
+  const names: string[] = (j.names || [])
+    .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 1000);
+
+  if (names.length === 0) {
     setRows([]);
+    setLoading(false);
+    return;
+  }
 
-    const resp = await fetch(`/api/turnieje/${tournament.id}/uczestnicy`);
-    const j = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      setErr(j.error || "Nie udało się pobrać listy z arkusza");
-      setLoading(false);
-      return;
-    }
+  // 🔴 KLUCZ: cała normalizacja po stronie Postgresa
+  const { data, error } = await supabaseBrowser
+    .rpc("gracz_exists_by_names", { _names: names });
 
-    const names: string[] = (j.names || [])
-      .map((x: string) => x?.toString().replace(/\u00A0/g, " ").trim())
-      .filter(Boolean)
-      .slice(0, 1000);
+  if (error) {
+    setErr(error.message);
+    setLoading(false);
+    return;
+  }
 
-    if (names.length === 0) {
-      setRows([]);
-      setLoading(false);
-      return;
+  const foundMap = new Map<string, boolean>();
+  for (const r of data || []) {
+    foundMap.set((r.input_name || "").replace(/\u00A0/g, " ").trim(), !!r.found);
+  }
+
+  setRows(names.map((name) => ({ name, exists: !!foundMap.get(name) })));
+  setLoading(false);
+}
+ return;
     }
 
     const norms = Array.from(new Set(names.map(normDb)));
@@ -325,24 +346,25 @@ function PlayerSearch({
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    if (timer.current) window.clearTimeout(timer.current);
-    if (!q.trim()) {
-      setList([]);
-      return;
+  if (timer.current) window.clearTimeout(timer.current);
+  if (!q.trim()) {
+    setList([]);
+    return;
+  }
+  timer.current = window.setTimeout(async () => {
+    // 🔴 Serwer normalizuje: gracz_search
+    const { data, error } = await supabaseBrowser
+      .rpc("gracz_search", { _q: q.trim(), _limit: 10 });
+
+    if (!error) {
+      const arr = (data || []) as Gracz[];
+      setList(arr.filter((g) => !excludeIds.includes(g.id)));
     }
-    timer.current = window.setTimeout(async () => {
-      const needle = normDb(q.trim());
-      const { data, error } = await supabaseBrowser
-        .from("gracz")
-        .select("id,imie,nazwisko,ranking,fullname_norm")
-        .ilike("fullname_norm", `%${needle}%`)
-        .limit(10);
-      if (!error) {
-        setList(((data || []) as Gracz[]).filter((g) => !excludeIds.includes(g.id)));
-      }
-    }, 180);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, excludeIds.join(",")]);
+  }, 180);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [q, excludeIds.join(",")]);
+
 
   return (
     <div className="grid gap-1">
