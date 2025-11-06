@@ -8,7 +8,7 @@
   html, body {
     @apply min-h-screen bg-rose-50 text-gray-900;
     /* Fallback na wypadek wyłączenia Tailwinda: */
-    background-color: #fff1f2; /* rose-50 */
+    background-color: #c13942; /* rose-50 */
   }
 }
 
