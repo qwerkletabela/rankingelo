@@ -2,32 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Kolory do gradientu */
+/* bardzo jasna czerwień */
 :root {
-  --page-grad-from: 248 20% 98%;
-  --page-grad-mid: 0 90% 97%;
-  --page-grad-to: 0 85% 96%;
+  --page-grad-from: 0 90% 97%;
+  --page-grad-mid:  0 90% 97%;
+  --page-grad-to:   0 85% 96%;
 }
 
-/* Daj gradient NA html (nie na body) */
 @layer base {
   html {
     min-height: 100%;
-    /* tło globalne – delikatny czerwony */
+    /* solid fallback (działa też, gdy gradienty są wyłączone) */
+    background-color: hsl(var(--page-grad-mid));
+    /* jeśli chcesz JEDNOLITE tło — zostaw tylko powyższą linię i usuń gradienty */
     background:
       radial-gradient(1200px 600px at 20% -10%, hsl(var(--page-grad-mid)) 0%, transparent 60%),
       radial-gradient(1000px 500px at 100% 0%, hsl(var(--page-grad-to)) 0%, transparent 55%),
-      linear-gradient(to bottom, hsl(var(--page-grad-from)), #fff);
-    /* opcjonalnie, by tło nie „jechało” przy scrollu */
+      linear-gradient(to bottom, hsl(var(--page-grad-from)), hsl(var(--page-grad-to)));
     background-attachment: fixed;
   }
-  /* body ma być przezroczyste, żeby było widać html */
   body {
     @apply min-h-screen text-gray-900;
     background: transparent;
   }
 }
 
-/* Karty i reszta — możesz zostawić jak masz */
+/* karty zostają białe, żeby ładnie „leżały” na czerwonym tle */
 .card { @apply bg-white/95 backdrop-blur-sm rounded-2xl shadow-soft p-6 border border-white/60; }
-/* ...reszta Twoich styli bez zmian... */
