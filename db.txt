@@ -643,3 +643,42 @@ from (
   join public.turniej t on t.id = s.turniej_id
 ) x
 where x.rn = 1;
+
+
+
+
+
+
+
+-- Zwraca, czy dane imię+nazwisko istnieje (po tej samej normalizacji co fullname_norm)
+create or replace function public.gracz_exists_by_names(_names text[])
+returns table(
+  input_name text,
+  normalized text,
+  gracz_id uuid,
+  found boolean,
+  imie text,
+  nazwisko text
+) language sql stable as $$
+with s as (
+  select unnest(_names) as input_name
+)
+select
+  s.input_name,
+  public.norm_txt(s.input_name) as normalized,
+  g.id as gracz_id,
+  (g.id is not null) as found,
+  g.imie, g.nazwisko
+from s
+left join public.gracz g
+  on g.fullname_norm = public.norm_txt(s.input_name)
+$$;
+
+-- Zwraca rekord gracza po raw „imię nazwisko” (po norm_txt)
+create or replace function public.gracz_get_by_name(_name text)
+returns public.gracz
+language sql stable as $$
+  select g.* from public.gracz g
+  where g.fullname_norm = public.norm_txt(_name)
+  limit 1;
+$$;
