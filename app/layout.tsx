@@ -15,12 +15,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pl">
-      <body className="min-h-screen antialiased">
-  <NavBar />
-  <div className="pt-14 md:pt-16">
-    {children}
-  </div>
-</body>
+      {/* tło także jako klasa Tailwinda, plus fallback w globals.css */}
+      <body className="bg-rose-50">
+        <NavBar />
+        {/* odstęp pod sticky navbarem (dostosuj wysokość, jeśli trzeba) */}
+        <div className="pt-16 md:pt-20">
+          {children}
+        </div>
+      </body>
     </html>
   );
 }
