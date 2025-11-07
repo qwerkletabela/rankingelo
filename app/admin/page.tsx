@@ -62,7 +62,7 @@ export default function AdminPage() {
     return (
       <main>
         <div className="max-w-6xl mx-auto px-4 py-6">
-          <a href="/login" className="btn btn-primary">Zaloguj, aby zarządzać</a>
+          <a href="/login" className="btn btn-primary">Zaloguj, aby  zarządzać</a>
         </div>
       </main>
     );
