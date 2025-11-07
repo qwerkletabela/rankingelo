@@ -96,7 +96,7 @@ export default function RankingPage() {
   }, [q, rows]);
 
   return (
-    <main className="bg-gradient-to-b from-gray-200 to-white min-h-[calc(100vh-56px)]">
+    <main>
       <div className="max-w-6xl mx-auto px-4 -mt-12 pb-10">
         <div className="pt-6 mb-5">
           <div className="flex items-end justify-between gap-3">
