@@ -768,3 +768,317 @@ on public.turniej
 for select
 using (true);
 
+-- ============================================================
+-- 0) Helper: sprawdzanie roli admin
+-- ============================================================
+create or replace function public.is_admin(uid uuid)
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1 from public.users u
+    where u.id = uid and u.ranga = 'admin'
+  );
+$$;
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+as $$
+  select public.is_admin(auth.uid());
+$$;
+
+-- ============================================================
+-- 1) Włącz RLS na tabelach (idempotentnie)
+-- ============================================================
+alter table public.gracz        enable row level security;
+alter table public.turniej      enable row level security;
+alter table public.stolik       enable row level security;
+alter table public.partia       enable row level security;
+alter table public.partia_male  enable row level security;
+alter table public.elo_event    enable row level security;
+alter table public.elo_settings enable row level security;
+alter table public.users        enable row level security;
+
+-- ============================================================
+-- 2) POLITYKI: publiczny SELECT, zapisy tylko dla admina
+--    Uwaga: każda operacja ma OSOBNĄ politykę.
+-- ============================================================
+
+-- ========== GRACZ ==========
+drop policy if exists gracz_select_public  on public.gracz;
+drop policy if exists gracz_insert_admin   on public.gracz;
+drop policy if exists gracz_update_admin   on public.gracz;
+drop policy if exists gracz_delete_admin   on public.gracz;
+
+create policy gracz_select_public
+on public.gracz
+for select
+to anon, authenticated
+using (true);
+
+create policy gracz_insert_admin
+on public.gracz
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy gracz_update_admin
+on public.gracz
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy gracz_delete_admin
+on public.gracz
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== TURNIEJ ==========
+drop policy if exists turniej_select_public on public.turniej;
+drop policy if exists turniej_insert_admin  on public.turniej;
+drop policy if exists turniej_update_admin  on public.turniej;
+drop policy if exists turniej_delete_admin  on public.turniej;
+
+create policy turniej_select_public
+on public.turniej
+for select
+to anon, authenticated
+using (true);
+
+create policy turniej_insert_admin
+on public.turniej
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy turniej_update_admin
+on public.turniej
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy turniej_delete_admin
+on public.turniej
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== STOLIK ==========
+drop policy if exists stolik_select_public on public.stolik;
+drop policy if exists stolik_insert_admin  on public.stolik;
+drop policy if exists stolik_update_admin  on public.stolik;
+drop policy if exists stolik_delete_admin  on public.stolik;
+
+create policy stolik_select_public
+on public.stolik
+for select
+to anon, authenticated
+using (true);
+
+create policy stolik_insert_admin
+on public.stolik
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy stolik_update_admin
+on public.stolik
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy stolik_delete_admin
+on public.stolik
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== PARTIA ==========
+drop policy if exists partia_select_public on public.partia;
+drop policy if exists partia_insert_admin  on public.partia;
+drop policy if exists partia_update_admin  on public.partia;
+drop policy if exists partia_delete_admin  on public.partia;
+
+create policy partia_select_public
+on public.partia
+for select
+to anon, authenticated
+using (true);
+
+create policy partia_insert_admin
+on public.partia
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy partia_update_admin
+on public.partia
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy partia_delete_admin
+on public.partia
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== PARTIA_MALE ==========
+drop policy if exists partia_male_select_public on public.partia_male;
+drop policy if exists partia_male_insert_admin  on public.partia_male;
+drop policy if exists partia_male_update_admin  on public.partia_male;
+drop policy if exists partia_male_delete_admin  on public.partia_male;
+
+create policy partia_male_select_public
+on public.partia_male
+for select
+to anon, authenticated
+using (true);
+
+create policy partia_male_insert_admin
+on public.partia_male
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy partia_male_update_admin
+on public.partia_male
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy partia_male_delete_admin
+on public.partia_male
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== ELO_EVENT ==========
+drop policy if exists elo_event_select_public on public.elo_event;
+drop policy if exists elo_event_insert_admin  on public.elo_event;
+drop policy if exists elo_event_update_admin  on public.elo_event;
+drop policy if exists elo_event_delete_admin  on public.elo_event;
+
+create policy elo_event_select_public
+on public.elo_event
+for select
+to anon, authenticated
+using (true);
+
+create policy elo_event_insert_admin
+on public.elo_event
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy elo_event_update_admin
+on public.elo_event
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy elo_event_delete_admin
+on public.elo_event
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== ELO_SETTINGS ==========
+drop policy if exists elo_settings_select_public on public.elo_settings;
+drop policy if exists elo_settings_insert_admin  on public.elo_settings;
+drop policy if exists elo_settings_update_admin  on public.elo_settings;
+drop policy if exists elo_settings_delete_admin  on public.elo_settings;
+
+create policy elo_settings_select_public
+on public.elo_settings
+for select
+to anon, authenticated
+using (true);
+
+create policy elo_settings_insert_admin
+on public.elo_settings
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy elo_settings_update_admin
+on public.elo_settings
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy elo_settings_delete_admin
+on public.elo_settings
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ========== USERS (tylko admin widzi/edytuje) ==========
+drop policy if exists users_select_admin on public.users;
+drop policy if exists users_insert_admin on public.users;
+drop policy if exists users_update_admin on public.users;
+drop policy if exists users_delete_admin on public.users;
+
+create policy users_select_admin
+on public.users
+for select
+to authenticated
+using (public.is_admin());
+
+create policy users_insert_admin
+on public.users
+for insert
+to authenticated
+with check (public.is_admin());
+
+create policy users_update_admin
+on public.users
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy users_delete_admin
+on public.users
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ============================================================
+-- 3) Zabezpieczenie procedury przeliczania (SECURITY DEFINER)
+-- ============================================================
+
+-- Skasuj starą wersję jeśli była (bez definer-a)
+drop function if exists public.elo_recompute_all();
+
+create or replace function public.elo_recompute_all()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin(auth.uid()) then
+    raise exception 'FORBIDDEN: admin only';
+  end if;
+
+  -- >>> TU WSTAW TWOJE PEŁNE BODY FUNKCJI PRZELICZANIA (to, którego używasz)
+  -- (sam „header” został zmieniony na SECURITY DEFINER + check admin)
+end;
+$$;
+
+-- tylko zalogowani mogą wywołać (anon nie)
+revoke all on function public.elo_recompute_all() from public;
+grant execute on function public.elo_recompute_all() to authenticated;
+
