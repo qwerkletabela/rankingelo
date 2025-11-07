@@ -755,3 +755,16 @@ returns table(
   order by g.nazwisko, g.imie
   limit _limit
 $$;
+
+
+
+-- Upewnij się, że RLS jest włączone (Supabase zwykle włącza je domyślnie)
+alter table public.turniej enable row level security;
+
+-- Odczyt dla wszystkich (zarówno anon jak i authenticated)
+drop policy if exists "Public read tournaments" on public.turniej;
+create policy "Public read tournaments"
+on public.turniej
+for select
+using (true);
+
