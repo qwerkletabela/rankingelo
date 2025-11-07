@@ -58,7 +58,9 @@ type Gracz = {
 
 type WynikRow = {
   partia_id: string;
+  gracz_id: string;
   gracz: string;
+  elo_przed: number;
   elo_delta: number;
   wygral: boolean;
 };
@@ -588,7 +590,7 @@ function AddPartiaWizard({
       for (const pid of createdPartie) {
         const { data, error } = await supabaseBrowser
           .from("wyniki_rows")
-          .select("partia_id,gracz,elo_delta,wygral")
+          .select("partia_id,gracz_id,gracz,elo_przed,elo_delta,wygral")
           .eq("partia_id", pid);
         if (!error) summaries.push({ partia_id: pid, rows: (data || []) as WynikRow[] });
       }
@@ -628,34 +630,42 @@ function AddPartiaWizard({
             <>
               <div className="text-sm font-semibold">Zapisano. Podsumowanie zmian (Δ) dla każdej partii:</div>
               <div className="grid gap-3">
-                {summary.map((s, idx) => (
-                  <div key={s.partia_id} className="rounded-lg border px-3 py-2">
-                    <div className="text-xs text-gray-500 mb-1">Partia {idx + 1}</div>
-                    <div className="flex flex-wrap gap-2">
-                      {s.rows
-                        .sort(
-                          (a, b) =>
-                            Number(b.wygral) - Number(a.wygral) || a.gracz.localeCompare(b.gracz, "pl")
-                        )
-                        .map((r, i) => (
-                          <span
-                            key={i}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs ${
-                              r.wygral
-                                ? "bg-green-50 border-green-200 text-green-700"
-                                : "bg-gray-50 border-gray-200 text-gray-700"
-                            }`}
-                          >
-                            {r.gracz}
-                            <span className={r.elo_delta >= 0 ? "text-green-700" : "text-red-700"}>
-                              ({r.elo_delta >= 0 ? "+" : ""}
-                              {r.elo_delta})
-                            </span>
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                ))}
+                {summary.map((s, idx) => {
+  // sortuj dokładnie wg kolejności A/B/C/D (lineupIds)
+  const orderIdx = new Map(lineupIds.map((id, i) => [id, i]));
+  const sorted = s.rows
+    .slice()
+    .sort((a, b) => (orderIdx.get(a.gracz_id) ?? 99) - (orderIdx.get(b.gracz_id) ?? 99));
+
+  return (
+    <div key={s.partia_id} className="rounded-lg border px-3 py-2">
+      <div className="text-xs text-gray-500 mb-1">Partia {idx + 1}</div>
+      <div className="grid gap-1">
+        {sorted.map((r, i) => (
+          <div
+            key={r.gracz_id}
+            className="flex flex-wrap items-center justify-between rounded-md border bg-gray-50 px-2 py-1.5"
+          >
+            <div className="font-medium">{r.gracz}</div>
+
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-gray-600">
+                ELO przed:&nbsp;<b>{Math.round(r.elo_przed)}</b>
+              </span>
+              <span
+                className={r.elo_delta >= 0 ? "text-green-700 font-semibold" : "text-red-700 font-semibold"}
+                title="Zmiana w tej partii"
+              >
+                {r.elo_delta >= 0 ? `+${r.elo_delta}` : r.elo_delta}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+})}
+
               </div>
 
               <div className="flex items-center gap-2">
