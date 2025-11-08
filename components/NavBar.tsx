@@ -135,9 +135,14 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
           <div className="hidden md:flex items-center gap-3">
             {isAuthed ? (
               <div className="flex items-center gap-3">
-                <span className="text-sm text-white/90 bg-white/10 px-3 py-1.5 rounded-md">
-                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
-                </span>
+                <span
+  className={`text-sm px-3 py-1.5 rounded-md ${
+    isAdmin ? "text-black bg-white" : "text-white/90 bg-white/10"
+  }`}
+>
+  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+</span>
+
 
                 {isAdmin && (
                   <Link
@@ -232,9 +237,14 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
           <div id="mobile-nav" className="md:hidden pb-4 space-y-4 bg-red-700 text-white">
             {isAuthed ? (
               <div className="space-y-3 px-1">
-                <div className="text-sm bg-white/10 px-3 py-2 rounded-md">
-                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
-                </div>
+                <div
+  className={`text-sm px-3 py-2 rounded-md ${
+    isAdmin ? "text-black bg-white" : "text-white/90 bg-white/10"
+  }`}
+>
+  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+</div>
+
 
                 {isAdmin && (
                   <Link
