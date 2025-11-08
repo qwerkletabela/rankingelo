@@ -8,40 +8,41 @@ import {
 import { supabaseBrowser } from "@/lib/supabase/client";
 
 type Props = {
+  /** Dane z SSR, żeby uniknąć migania UI */
   initialUserEmail: string | null;
   initialIsAdmin: boolean;
 };
 
-export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
+export default function NavBar({ initialUserEmail, initialIsAdmin }: Props) {
   const [open, setOpen] = useState(false);
 
-  // stan użytkownika – startujemy od wartości z SSR (brak flickera)
+  // Stan użytkownika — startujemy ze stanem SSR (brak flickera)
   const [userEmail, setUserEmail] = useState<string | null>(initialUserEmail);
   const [isAdmin, setIsAdmin] = useState<boolean>(initialIsAdmin);
 
-  // formularz logowania
+  // Formularz logowania
   const [emailInput, setEmailInput] = useState("");
   const [passInput, setPassInput] = useState("");
   const [authErr, setAuthErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // ważne: NIE czyścimy stanu na null na starcie – używamy SSR props
+  // Weryfikacja sesji i roli po stronie klienta + nasłuch zmian
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
     (async () => {
-      // szybka walidacja stanu po stronie klienta (nie psuje pierwszego renderu)
       const { data: { user } } = await supabaseBrowser.auth.getUser();
       if (user?.email !== userEmail) {
         setUserEmail(user?.email ?? null);
       }
+
       if (user?.id) {
-        // sprawdź admina – najpierw RPC
+        // 1) RPC is_admin (rekomendowane)
         const rpc = await supabaseBrowser.rpc("is_admin");
         if (!rpc.error && typeof rpc.data === "boolean") {
           setIsAdmin(rpc.data);
         } else {
-          // fallback: ranga z tabeli users (jeśli polityka na to pozwala)
+          // 2) fallback – z tabeli users
           const sel = await supabaseBrowser
             .from("users")
             .select("ranga")
@@ -53,10 +54,11 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
         setIsAdmin(false);
       }
 
-      // nasłuch zmian sesji
+      // Subskrypcja zdarzeń auth
       const sub = supabaseBrowser.auth.onAuthStateChange(async (_evt, session) => {
         const u = session?.user ?? null;
         setUserEmail(u?.email ?? null);
+
         if (u?.id) {
           const rpc2 = await supabaseBrowser.rpc("is_admin");
           if (!rpc2.error && typeof rpc2.data === "boolean") {
@@ -73,12 +75,13 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
           setIsAdmin(false);
         }
       });
+
       unsub = () => sub.data.subscription.unsubscribe();
     })();
 
     return () => { unsub?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // tylko raz – na starcie
+  }, []);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -136,20 +139,13 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
             {isAuthed ? (
               <div className="flex items-center gap-3">
                 <span
-  className={
-    `text-sm px-3 py-1.5 rounded-md ` +
-    (isAdmin
-      ? // admin: czarny tekst, jaśniejsze tło
-        `text-black bg-white/80`
-      : // zwykły user: dotychczasowe
-        `text-white/90 bg-white/10`
-    )
-  }
->
-  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
-</span>
-
-
+                  className={
+                    "text-sm px-3 py-1.5 rounded-md " +
+                    (isAdmin ? "text-black bg-white/80" : "text-white/90 bg-white/10")
+                  }
+                >
+                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+                </span>
 
                 {isAdmin && (
                   <Link
@@ -216,9 +212,7 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
                     </span>
                   </button>
                 </form>
-                {authErr && (
-                  <div className="text-xs text-red-100/90">{authErr}</div>
-                )}
+                {authErr && <div className="text-xs text-red-100/90">{authErr}</div>}
                 <Link href="/auth/register" className="text-xs text-white/80 hover:text-white underline">
                   Nie masz konta? Zarejestruj się
                 </Link>
@@ -241,21 +235,12 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
 
         {/* Mobile panel */}
         {open && (
-          <div
-  className={
-    `text-sm px-3 py-1.5 rounded-md ` +
-    (isAdmin
-      ? // admin: czarny tekst, jaśniejsze tło
-        `text-black bg-white/80`
-      : // zwykły user: dotychczasowe
-        `text-white/90 bg-white/10`
-    )
-  }
->
-  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
-</div>
-
-
+          <div id="mobile-nav" className="md:hidden pb-4 space-y-4 bg-red-700 text-white">
+            {isAuthed ? (
+              <div className="space-y-3 px-1">
+                <div className={isAdmin ? "text-sm bg-white/80 text-black px-3 py-2 rounded-md" : "text-sm bg-white/10 px-3 py-2 rounded-md"}>
+                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+                </div>
 
                 {isAdmin && (
                   <Link
@@ -322,9 +307,7 @@ export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
                     <LogIn className="h-4 w-4" /> {busy ? "Logowanie…" : "Zaloguj"}
                   </span>
                 </button>
-                {authErr && (
-                  <div className="text-xs text-red-100/90 px-1">{authErr}</div>
-                )}
+                {authErr && <div className="text-xs text-red-100/90 px-1">{authErr}</div>}
                 <Link
                   href="/auth/register"
                   className="block text-xs text-white/80 hover:text-white underline text-center"
