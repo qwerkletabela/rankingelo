@@ -1,7 +1,7 @@
 -- ============================================================
 -- 1) Rozszerzenia i helpery
 -- ============================================================
-create extension if not exists unaccent;
+create extension  if not exists unaccent;
 create extension if not exists pgcrypto; -- gen_random_uuid()
 
 -- Unaccent IMMUTABLE (żeby działały kolumny generowane)
