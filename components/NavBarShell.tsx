@@ -2,7 +2,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import NavBar from "./NavBar";
 
 export default async function NavBarShell() {
-  const supabase = createClient();
+  const supabase = createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   let isAdmin = false;
