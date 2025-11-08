@@ -2,17 +2,23 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Menu, X, Trophy, Mail, Lock, LogIn, LogOut, User, Shield } from "lucide-react";
+import {
+  Menu, X, Trophy, Mail, Lock, LogIn, LogOut, User, Shield,
+} from "lucide-react";
 
 type NavbarProps = {
-  isAuthed?: boolean;
+  /** email zalogowanego użytkownika; undefined/null => niezalogowany */
+  userEmail?: string;
+  /** czy użytkownik ma rolę admin (opcjonalnie do pokazania przycisku panelu) */
   isAdmin?: boolean;
+  /** obsługa logowania (np. Supabase auth.signInWithPassword) */
   onSignIn?: (email: string, password: string) => Promise<void> | void;
+  /** obsługa wylogowania (np. Supabase auth.signOut) */
   onSignOut?: () => Promise<void> | void;
 };
 
 export default function Navbar({
-  isAuthed = false,
+  userEmail,
   isAdmin = false,
   onSignIn,
   onSignOut,
@@ -20,30 +26,29 @@ export default function Navbar({
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const isAuthed = Boolean(userEmail);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (onSignIn) await onSignIn(email, pass);
   }
 
-  // będzie użyte do zamykania menu po kliknięciu linku w mobile
-  const closeAnd = (fn?: () => void) => () => {
-    setOpen(false);
-    fn?.();
-  };
+  const closeMobile = () => setOpen(false);
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-red-900 bg-red-700 text-white">
       <div className="mx-auto max-w-6xl px-4">
         <div className="flex h-16 items-center justify-between">
-          {/* Logo + nav */}
+          {/* Logo + desktop nav */}
           <div className="flex items-center gap-4 md:gap-8">
-            <Link href="/" className="flex items-center gap-2 text-xl font-bold focus:outline-none focus-visible:ring-2 ring-white/70 rounded-md px-1">
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-xl font-bold focus:outline-none focus-visible:ring-2 ring-white/70 rounded-md px-1"
+            >
               <Trophy className="h-6 w-6" />
               <span>ELO Arena</span>
             </Link>
 
-            {/* Desktop nav */}
             <nav className="hidden md:flex items-center gap-3 lg:gap-4">
               <NavButton href="/ranking">Ranking</NavButton>
               <NavButton href="/gracze">Gracze</NavButton>
@@ -55,17 +60,22 @@ export default function Navbar({
           {/* Desktop: auth */}
           <div className="hidden md:flex items-center gap-3">
             {isAuthed ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-white/90 bg-white/10 px-3 py-1.5 rounded-md">
+                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+                </span>
+
                 {isAdmin && (
-                  <button
+                  <Link
+                    href="/admin"
                     className="rounded-2xl bg-red-800 hover:bg-red-900 text-white px-3 py-2 shadow-sm shadow-black/20 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
-                    type="button"
                   >
                     <span className="inline-flex items-center gap-2 text-sm">
                       <Shield className="h-4 w-4" /> Panel
                     </span>
-                  </button>
+                  </Link>
                 )}
+
                 <Link
                   href="/profil"
                   className="rounded-2xl border border-white/30 text-white hover:bg-white/10 px-3 py-2 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
@@ -74,10 +84,11 @@ export default function Navbar({
                     <User className="h-4 w-4" /> Profil
                   </span>
                 </Link>
+
                 <button
                   onClick={() => onSignOut?.()}
-                  className="rounded-2xl bg-white text-red-800 hover:bg-white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
                   type="button"
+                  className="rounded-2xl bg-white text-red-800 hover:bg-white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
                 >
                   <span className="inline-flex items-center gap-2 text-sm">
                     <LogOut className="h-4 w-4" /> Wyloguj
@@ -141,44 +152,71 @@ export default function Navbar({
         {/* Mobile panel */}
         {open && (
           <div id="mobile-nav" className="md:hidden pb-4 space-y-4 bg-red-700 text-white">
-            <form onSubmit={handleSubmit} className="space-y-2 px-1">
-              <div className="relative">
-                <Mail className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                <input
-                  type="email"
-                  required
-                  placeholder="Email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-8 w-full bg-white text-gray-900 placeholder:text-gray-500 rounded-md h-10 outline-none focus:ring-2 ring-offset-2 ring-red-300"
-                />
+            {isAuthed ? (
+              <div className="space-y-3 px-1">
+                <div className="text-sm bg-white/10 px-3 py-2 rounded-md">
+                  Zalogowany jako <strong className="font-semibold">{userEmail}</strong>
+                </div>
+                <Link
+                  href="/profil"
+                  onClick={closeMobile}
+                  className="px-3 py-2 rounded-2xl bg-red-800 hover:bg-red-900 text-white text-center shadow-sm shadow-black/20 transition-colors"
+                >
+                  <span className="inline-flex items-center gap-2 text-sm">
+                    <User className="h-4 w-4" /> Profil
+                  </span>
+                </Link>
+                <button
+                  onClick={() => { closeMobile(); onSignOut?.(); }}
+                  className="px-3 py-2 rounded-2xl bg-white text-red-800 hover:bg-white/90 text-center shadow-sm shadow-black/10 transition-colors"
+                  type="button"
+                >
+                  <span className="inline-flex items-center gap-2 text-sm">
+                    <LogOut className="h-4 w-4" /> Wyloguj
+                  </span>
+                </button>
               </div>
-              <div className="relative">
-                <Lock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
-                <input
-                  type="password"
-                  required
-                  placeholder="Hasło"
-                  value={pass}
-                  onChange={(e) => setPass(e.target.value)}
-                  className="pl-8 w-full bg-white text-gray-900 placeholder:text-gray-500 rounded-md h-10 outline-none focus:ring-2 ring-offset-2 ring-red-300"
-                />
-              </div>
-              <button
-                type="submit"
-                className="w-full rounded-2xl bg-white text-red-800 hover:bg-white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
-              >
-                <span className="inline-flex items-center gap-2 text-sm">
-                  <LogIn className="h-4 w-4" /> Zaloguj
-                </span>
-              </button>
-              <Link
-                href="/auth/register"
-                className="block text-xs text-white/80 hover:text-white underline text-center"
-              >
-                Nie masz konta? Zarejestruj się
-              </Link>
-            </form>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-2 px-1">
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="pl-8 w-full bg-white text-gray-900 placeholder:text-gray-500 rounded-md h-10 outline-none focus:ring-2 ring-offset-2 ring-red-300"
+                  />
+                </div>
+                <div className="relative">
+                  <Lock className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/70" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Hasło"
+                    value={pass}
+                    onChange={(e) => setPass(e.target.value)}
+                    className="pl-8 w-full bg-white text-gray-900 placeholder:text-gray-500 rounded-md h-10 outline-none focus:ring-2 ring-offset-2 ring-red-300"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl bg-white text-red-800 hover:bg-white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70"
+                >
+                  <span className="inline-flex items-center gap-2 text-sm">
+                    <LogIn className="h-4 w-4" /> Zaloguj
+                  </span>
+                </button>
+                <Link
+                  href="/auth/register"
+                  className="block text-xs text-white/80 hover:text-white underline text-center"
+                  onClick={closeMobile}
+                >
+                  Nie masz konta? Zarejestruj się
+                </Link>
+              </form>
+            )}
 
             <div className="grid gap-2 pt-2 border-t border-white/20 px-1">
               {[
@@ -190,23 +228,12 @@ export default function Navbar({
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={closeAnd()}
+                  onClick={closeMobile}
                   className="px-3 py-2 rounded-2xl bg-red-800 hover:bg-red-900 text-white text-center shadow-sm shadow-black/20 transition-colors"
                 >
                   {item.label}
                 </Link>
               ))}
-              {isAuthed && (
-                <button
-                  onClick={closeAnd(() => onSignOut?.())}
-                  className="px-3 py-2 rounded-2xl bg-white text-red-800 hover:bg-white/90 text-center shadow-sm shadow-black/10 transition-colors"
-                  type="button"
-                >
-                  <span className="inline-flex items-center gap-2 text-sm">
-                    <LogOut className="h-4 w-4" /> Wyloguj
-                  </span>
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -215,7 +242,7 @@ export default function Navbar({
   );
 }
 
-/* --- Pomocniczy przycisk nawigacji (ciemny, z efektem hover i focus) --- */
+/** Ciemny „przycisk” nawigacyjny z hover i focus */
 function NavButton({ href, children }: { href: string; children: React.ReactNode }) {
   return (
     <Link
