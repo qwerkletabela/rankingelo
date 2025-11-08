@@ -1,27 +1,27 @@
 // app/layout.tsx
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import NavBarShell from "@/components/NavBarShell";
-import "leaflet/dist/leaflet.css";
 
-const inter = Inter({ subsets: ["latin"] });
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const supabase = createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-export const metadata: Metadata = {
-  title: "Ranking Elo",
-  description: "Panel i ranking",
-};
+  let isAdmin = false;
+  if (user) {
+    const { data } = await supabase
+      .from("users")
+      .select("ranga")
+      .eq("id", user.id)
+      .single();
+    isAdmin = data?.ranga === "admin";
+  }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pl">
-      {/* tło także jako klasa Tailwinda, plus fallback w globals.css */}
-      <body className="bg-rose-50">
-        <NavBarShell />
-        {/* odstęp pod sticky navbarem (dostosuj wysokość, jeśli trzeba) */}
-        <div className="pt-16 md:pt-20">
-          {children}
-        </div>
+      <body>
+        <NavBarShell userEmail={user?.email ?? undefined} isAdmin={isAdmin} />
+        {children}
       </body>
     </html>
   );
