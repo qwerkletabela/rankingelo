@@ -7,8 +7,17 @@ import {
 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 
-export default function Navbar() {
+type Props = {
+  initialUserEmail: string | null;
+  initialIsAdmin: boolean;
+};
+
+export default function Navbar({ initialUserEmail, initialIsAdmin }: Props) {
   const [open, setOpen] = useState(false);
+
+  // stan użytkownika – startujemy od wartości z SSR (brak flickera)
+  const [userEmail, setUserEmail] = useState<string | null>(initialUserEmail);
+  const [isAdmin, setIsAdmin] = useState<boolean>(initialIsAdmin);
 
   // formularz logowania
   const [emailInput, setEmailInput] = useState("");
@@ -16,32 +25,50 @@ export default function Navbar() {
   const [authErr, setAuthErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // stan użytkownika
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  // === initial load + subskrypcja zmian sesji ===
+  // ważne: NIE czyścimy stanu na null na starcie – używamy SSR props
   useEffect(() => {
     let unsub: (() => void) | undefined;
 
     (async () => {
-      // pobierz aktualnego usera
+      // szybka walidacja stanu po stronie klienta (nie psuje pierwszego renderu)
       const { data: { user } } = await supabaseBrowser.auth.getUser();
-      setUserEmail(user?.email ?? null);
-
-      // sprawdź uprawnienia admin
+      if (user?.email !== userEmail) {
+        setUserEmail(user?.email ?? null);
+      }
       if (user?.id) {
-        await checkAdmin(user.id);
+        // sprawdź admina – najpierw RPC
+        const rpc = await supabaseBrowser.rpc("is_admin");
+        if (!rpc.error && typeof rpc.data === "boolean") {
+          setIsAdmin(rpc.data);
+        } else {
+          // fallback: ranga z tabeli users (jeśli polityka na to pozwala)
+          const sel = await supabaseBrowser
+            .from("users")
+            .select("ranga")
+            .eq("id", user.id)
+            .maybeSingle();
+          setIsAdmin(sel.data?.ranga === "admin");
+        }
       } else {
         setIsAdmin(false);
       }
 
-      // słuchacz zmian sesji
+      // nasłuch zmian sesji
       const sub = supabaseBrowser.auth.onAuthStateChange(async (_evt, session) => {
         const u = session?.user ?? null;
         setUserEmail(u?.email ?? null);
         if (u?.id) {
-          await checkAdmin(u.id);
+          const rpc2 = await supabaseBrowser.rpc("is_admin");
+          if (!rpc2.error && typeof rpc2.data === "boolean") {
+            setIsAdmin(rpc2.data);
+          } else {
+            const sel2 = await supabaseBrowser
+              .from("users")
+              .select("ranga")
+              .eq("id", u.id)
+              .maybeSingle();
+            setIsAdmin(sel2.data?.ranga === "admin");
+          }
         } else {
           setIsAdmin(false);
         }
@@ -50,30 +77,9 @@ export default function Navbar() {
     })();
 
     return () => { unsub?.(); };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // tylko raz – na starcie
 
-  // === sprawdzanie roli admin ===
-  async function checkAdmin(_uid: string) {
-    // 1) preferowane: RPC is_admin() (SQL helper w bazie)
-    const rpc = await supabaseBrowser.rpc("is_admin");
-    if (!rpc.error && typeof rpc.data === "boolean") {
-      setIsAdmin(rpc.data);
-      return;
-    }
-    // 2) fallback: odczyt rangi z tabeli users (musi istnieć polityka pozwalająca odczytać swój wiersz)
-    const sel = await supabaseBrowser
-      .from("users")
-      .select("ranga")
-      .eq("id", _uid)
-      .maybeSingle();
-    if (!sel.error && sel.data?.ranga === "admin") {
-      setIsAdmin(true);
-    } else {
-      setIsAdmin(false);
-    }
-  }
-
-  // === logowanie / wylogowanie ===
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setAuthErr(null);
@@ -254,7 +260,7 @@ export default function Navbar() {
 
                 <button
                   onClick={async () => { closeMobile(); await handleSignOut(); }}
-                  className="px-3 py-2 rounded-2xl bg.white text-red-800 hover:bg-white/90 text-center shadow-sm shadow-black/10 transition-colors bg-white"
+                  className="px-3 py-2 rounded-2xl bg-white text-red-800 hover:bg-white/90 text-center shadow-sm shadow-black/10 transition-colors"
                   type="button"
                 >
                   <span className="inline-flex items-center gap-2 text-sm">
@@ -289,7 +295,7 @@ export default function Navbar() {
                 <button
                   type="submit"
                   disabled={busy}
-                  className="w-full rounded-2xl bg-white text-red-800 hover:bg.white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70 disabled:opacity-60"
+                  className="w-full rounded-2xl bg-white text-red-800 hover:bg-white/90 px-3 py-2 shadow-sm shadow-black/10 transition-colors focus:outline-none focus-visible:ring-2 ring-white/70 disabled:opacity-60"
                 >
                   <span className="inline-flex items-center gap-2 text-sm">
                     <LogIn className="h-4 w-4" /> {busy ? "Logowanie…" : "Zaloguj"}
@@ -300,7 +306,7 @@ export default function Navbar() {
                 )}
                 <Link
                   href="/auth/register"
-                  className="block text-xs text.white/80 hover:text-white underline text-center"
+                  className="block text-xs text-white/80 hover:text-white underline text-center"
                   onClick={closeMobile}
                 >
                   Nie masz konta? Zarejestruj się
